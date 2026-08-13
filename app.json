@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "Anecto",
+    "slug": "anecto",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "scheme": "anecto",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "fr.anecto.app"
+    },
+    "android": {
+      "package": "fr.anecto.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#222222"
+        }
+      ]
+    ],
+    "extra": {
+      "supabaseUrl": "SUPABASE_URL_A_RENSEIGNER",
+      "supabaseAnonKey": "SUPABASE_ANON_KEY_A_RENSEIGNER",
+      "eas": {
+        "projectId": "A_RENSEIGNER_APRES_EAS_INIT"
+      }
+    }
+  }
+}
