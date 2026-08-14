@@ -25,7 +25,7 @@ export default function HomeScreen() {
 
     const { data: profileData } = await supabase
       .from('profiles')
-      .select('city')
+      .select('city, city_place_id')
       .eq('id', profile.user.id)
       .single();
 
@@ -34,15 +34,20 @@ export default function HomeScreen() {
       return;
     }
 
-    // Anecdote validée, la moins souvent servie en priorité, pour cette ville
-    const { data, error } = await supabase
+    // Anecdote validée, la moins souvent servie en priorité, pour cette ville.
+    // Le rattachement se fait par place_id Google ; `city` ne sert de repli que
+    // pour les profils créés avant l'autocomplétion.
+    const query = supabase
       .from('anecdotes')
       .select('*')
-      .eq('city', profileData.city)
       .eq('status', 'validated')
       .order('reuse_count', { ascending: true })
-      .limit(1)
-      .maybeSingle();
+      .limit(1);
+
+    const { data, error } = await (profileData.city_place_id
+      ? query.eq('city_place_id', profileData.city_place_id)
+      : query.eq('city', profileData.city)
+    ).maybeSingle();
 
     if (error) {
       console.error(error);
