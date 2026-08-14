@@ -7,7 +7,8 @@ Une anecdote vraie et vérifiée sur ta ville, chaque jour, à l'heure de ton ch
 - React Native + Expo (TypeScript)
 - Supabase (Auth, Postgres, Edge Functions)
 - Google Places API (New) — uniquement pour le choix de la ville
-- Wikipédia (API MediaWiki) — dossier documentaire qui ancre les anecdotes
+- Wikipédia (API MediaWiki) et base Mérimée (POP, ministère de la Culture) —
+  dossier documentaire qui ancre les anecdotes
 - DeepSeek — rédaction et vérification des anecdotes, en `draft`
 - Expo Notifications (push quotidien)
 - React Navigation (bottom tabs)
@@ -102,10 +103,20 @@ curl -X POST "https://swvhclxwchrhyhtrvmhb.supabase.co/functions/v1/generate-ane
 
 Le modèle n'écrit jamais de mémoire. Quatre étapes :
 
-1. **ancrage** — récupération de l'article Wikipédia de la ville, et de
-   « Histoire de <ville> » s'il existe (API MediaWiki : gratuite, sans clé,
-   sans quota). Sans article exploitable, la fonction s'arrête là — elle ne
-   retombe jamais sur la mémoire du modèle.
+1. **ancrage** — deux sources gratuites et sans clé, interrogées en parallèle :
+   - **Wikipédia** : l'article de la ville, « Histoire de <ville> », « Liste des
+     monuments historiques de <ville> », et jusqu'à six articles **liés** au
+     patrimoine (églises, châteaux, forts, halles…). C'est là qu'est le volume :
+     l'article général d'une commune noie trois lignes d'histoire dans la
+     démographie, l'article de son château en contient dix fois plus.
+   - **Base Mérimée** (Plateforme ouverte du patrimoine) : une notice par
+     monument protégé, avec un champ historique — dates de construction,
+     commanditaires, remaniements, usages successifs.
+
+   Chaque source a son enveloppe (28 000 caractères pour Wikipédia, 12 000 pour
+   Mérimée) : sans réservation, Wikipédia remplirait tout. Si une source échoue,
+   l'autre fait le travail ; si les deux sont muettes, la fonction s'arrête là —
+   elle ne retombe jamais sur la mémoire du modèle.
 2. **rédaction** — DeepSeek écrit à partir de ce dossier et doit recopier
    **mot pour mot** les phrases qui établissent son anecdote.
 3. **contrôle** — on vérifie par comparaison de chaînes que chaque citation
@@ -125,9 +136,19 @@ L'anecdote est stockée avec l'URL Wikipédia réelle, et **toujours en
 éditoriale. Un index unique sur `(city_place_id, lower(title))` empêche les
 doublons.
 
-Pour dépasser ce que Wikipédia couvre (archives municipales, presse locale),
-brancher une API de recherche revient à ajouter des documents dans le dossier
-de l'étape 1 : le reste de la chaîne ne bouge pas.
+La réponse de la fonction renvoie un champ `dossier` listant chaque document
+retenu, son origine et son volume : c'est là qu'on voit ce qui a réellement
+nourri le modèle.
+
+Pour aller au-delà (presse locale, archives municipales), ajouter une source
+revient à écrire un fetcher qui renvoie des `SourceDoc` et à l'inscrire dans
+`buildDossier` : le reste de la chaîne ne bouge pas.
+
+**Sur le volume attendu.** Aucune source ne fournit 365 anecdotes par an sur une
+commune moyenne. Compter quelques dizaines d'anecdotes racontables par ville,
+tous supports confondus — le rythme quotidien suppose donc d'élargir le
+périmètre géographique quand une ville est épuisée, ou d'assumer un cycle de
+reprise.
 
 ## Build & publication
 
