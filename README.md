@@ -7,7 +7,8 @@ Une anecdote vraie et vérifiée sur ta ville, chaque jour, à l'heure de ton ch
 - React Native + Expo (TypeScript)
 - Supabase (Auth, Postgres, Edge Functions)
 - Google Places API (New) — uniquement pour le choix de la ville
-- DeepSeek — rédaction et auto-vérification des anecdotes, en `draft`
+- Wikipédia (API MediaWiki) — dossier documentaire qui ancre les anecdotes
+- DeepSeek — rédaction et vérification des anecdotes, en `draft`
 - Expo Notifications (push quotidien)
 - React Navigation (bottom tabs)
 
@@ -31,7 +32,7 @@ src/components/CityPicker.tsx       champ ville avec suggestions Google
 src/screens/                        AuthScreen, HomeScreen, SettingsScreen, HistoryScreen
 src/types/                          types partagés (Profile, Anecdote, CityDetails…)
 supabase/functions/city-search/     proxy Google Places (clé côté serveur)
-supabase/functions/generate-anecdote/  Claude + recherche web → anecdote `draft`
+supabase/functions/generate-anecdote/  Wikipédia + DeepSeek → anecdote `draft`
 supabase/migrations/                schéma
 ```
 
@@ -99,26 +100,34 @@ curl -X POST "https://swvhclxwchrhyhtrvmhb.supabase.co/functions/v1/generate-ane
   -d '{"city":"Saint-Malo","cityPlaceId":"ChIJ...","count":3}'
 ```
 
-Deux passes DeepSeek, avec des contextes séparés :
+Le modèle n'écrit jamais de mémoire. Quatre étapes :
 
-1. **rédaction** — le modèle propose une anecdote et liste les faits précis sur
-   lesquels elle repose ;
-2. **vérification** — un second appel, qui ignore qu'il relit sa propre copie,
-   examine chaque fait et rend un verdict `confirme` / `doute` / `refute`. Un
-   `refute` bloque l'enregistrement.
+1. **ancrage** — récupération de l'article Wikipédia de la ville, et de
+   « Histoire de <ville> » s'il existe (API MediaWiki : gratuite, sans clé,
+   sans quota). Sans article exploitable, la fonction s'arrête là — elle ne
+   retombe jamais sur la mémoire du modèle.
+2. **rédaction** — DeepSeek écrit à partir de ce dossier et doit recopier
+   **mot pour mot** les phrases qui établissent son anecdote.
+3. **contrôle** — on vérifie par comparaison de chaînes que chaque citation
+   figure réellement dans la source, et que chaque millésime du texte y
+   apparaît. Aucun modèle n'intervient ici : c'est du code. Une citation
+   introuvable ou une date fabriquée fait rejeter l'anecdote.
+4. **vérification** — un second appel DeepSeek relit l'anecdote *face au
+   dossier* et rend un verdict `confirme` / `doute` / `refute`. Un `refute`
+   bloque l'enregistrement.
 
-**Ce que ça ne fait pas.** L'API DeepSeek n'expose pas d'outil de recherche web :
-la passe 2 est une auto-vérification de mémoire, pas un sourçage. Elle rattrape
-une bonne part des dates inventées avec aplomb, mais elle ne prouve rien. En
-conséquence, la fonction ne demande jamais d'URL au modèle (il en inventerait),
-seulement des *pistes de vérification* qu'un humain doit contrôler — et elle
-**écrit toujours en `status = 'draft'`**. Rien ne part en notification sans
-relecture. Un index unique sur `(city_place_id, lower(title))` empêche les
+L'étape 3 est le vrai garde-fou : elle attrape l'erreur la plus dangereuse du
+modèle, le récit plausible avec une date fabriquée. La normalisation tolère les
+accents perdus et les apostrophes typographiques, pas l'invention.
+
+L'anecdote est stockée avec l'URL Wikipédia réelle, et **toujours en
+`status = 'draft'`** : un extrait d'encyclopédie n'est pas une validation
+éditoriale. Un index unique sur `(city_place_id, lower(title))` empêche les
 doublons.
 
-Pour transformer l'auto-vérification en véritable sourçage, il suffira
-d'injecter dans le prompt de la passe 1 les extraits d'une API de recherche
-(Tavily, Brave) : le reste de la chaîne est déjà prévu pour stocker des sources.
+Pour dépasser ce que Wikipédia couvre (archives municipales, presse locale),
+brancher une API de recherche revient à ajouter des documents dans le dossier
+de l'étape 1 : le reste de la chaîne ne bouge pas.
 
 ## Build & publication
 
