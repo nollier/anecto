@@ -1,12 +1,13 @@
 // Génère une anecdote pour une ville et l'enregistre en `draft`.
 //
-// Le principe : le modèle n'écrit jamais de mémoire. On lui donne d'abord un
-// texte qui existe (article Wikipédia de la ville), il rédige à partir de ce
-// texte, et il doit recopier mot pour mot les phrases sur lesquelles il
-// s'appuie. On vérifie ensuite ces citations par simple comparaison de
-// chaînes — pas par jugement d'un modèle.
+// Le principe : le modèle n'écrit jamais de mémoire. On lui donne d'abord des
+// textes qui existent, il rédige à partir d'eux, et il doit recopier mot pour
+// mot les phrases sur lesquelles il s'appuie. On vérifie ensuite ces citations
+// par simple comparaison de chaînes — pas par jugement d'un modèle.
 //
-//   1. ancrage      — récupération des articles Wikipédia de la ville ;
+//   1. ancrage      — Wikipédia (article de la ville, son histoire, ses
+//                     monuments liés) et base Mérimée (notices des monuments
+//                     protégés, ministère de la Culture) ;
 //   2. rédaction    — anecdote + citations verbatim tirées de ces articles ;
 //   3. contrôle     — les citations existent-elles dans la source ? les
 //                     millésimes du texte figurent-ils dans la source ?
@@ -24,7 +25,9 @@
 
 import { createClient } from 'npm:@supabase/supabase-js@^2';
 import { chatJSON, DEEPSEEK_MODEL, DeepSeekError } from './deepseek.ts';
-import { fetchCityDocs, WikiDoc } from './wikipedia.ts';
+import { fetchWikipediaDocs } from './wikipedia.ts';
+import { fetchPatrimoineDocs } from './patrimoine.ts';
+import type { SourceDoc } from './sources.ts';
 import { corsHeaders, fail, json } from './http.ts';
 
 const ADMIN_SECRET = Deno.env.get('ANECTO_ADMIN_SECRET');
@@ -38,6 +41,43 @@ const MIN_BODY_CHARS = 50; // contrainte de la table `anecdotes`
 const MAX_BODY_CHARS = 3000;
 const MIN_CITATIONS = 2;
 const MIN_CITATION_CHARS = 30;
+
+// Enveloppes de dossier, par origine : sans réservation, Wikipédia remplirait
+// tout et les notices Mérimée n'atteindraient jamais le modèle.
+const MAX_CHARS_WIKIPEDIA = 28000;
+const MAX_CHARS_MERIMEE = 12000;
+
+/** Tronque une liste de documents à un budget global de caractères. */
+function budget(docs: SourceDoc[], max: number): SourceDoc[] {
+  let total = 0;
+  const retenus: SourceDoc[] = [];
+  for (const doc of docs) {
+    if (total >= max) break;
+    const extract = doc.extract.slice(0, max - total);
+    retenus.push({ ...doc, extract });
+    total += extract.length;
+  }
+  return retenus;
+}
+
+/**
+ * Le dossier soumis au modèle. Les deux sources sont interrogées en parallèle
+ * et indépendamment : si l'une échoue, l'autre fait le travail.
+ */
+async function buildDossier(city: string): Promise<SourceDoc[]> {
+  const [wiki, merimee] = await Promise.allSettled([
+    fetchWikipediaDocs(city),
+    fetchPatrimoineDocs(city),
+  ]);
+
+  if (wiki.status === 'rejected') console.error('Wikipédia', wiki.reason);
+  if (merimee.status === 'rejected') console.error('Mérimée', merimee.reason);
+
+  return [
+    ...budget(wiki.status === 'fulfilled' ? wiki.value : [], MAX_CHARS_WIKIPEDIA),
+    ...budget(merimee.status === 'fulfilled' ? merimee.value : [], MAX_CHARS_MERIMEE),
+  ];
+}
 
 // ---------------------------------------------------------------- passe 1
 
@@ -167,11 +207,13 @@ function controler(redaction: Redaction, sourceText: string): Controle {
 
 // ----------------------------------------------------------------- prompts
 
-function dossier(docs: WikiDoc[]): string {
-  return docs.map((doc) => `=== ${doc.title} (${doc.url}) ===\n${doc.extract}`).join('\n\n');
+function dossier(docs: SourceDoc[]): string {
+  return docs
+    .map((doc) => `=== ${doc.title} — ${doc.editeur} (${doc.url}) ===\n${doc.extract}`)
+    .join('\n\n');
 }
 
-function redactionPrompt(city: string, docs: WikiDoc[], existingTitles: string[]): string {
+function redactionPrompt(city: string, docs: SourceDoc[], existingTitles: string[]): string {
   const dejaVues =
     existingTitles.length > 0
       ? `\n\nAnecdotes déjà enregistrées pour cette ville — trouve un autre sujet :\n${existingTitles
@@ -187,7 +229,7 @@ ${dossier(docs)}
 Écris une anecdote d'histoire locale sur ${city}, uniquement à partir du dossier ci-dessus. Réponds en json.${dejaVues}`;
 }
 
-function verificationPrompt(city: string, redaction: Redaction, docs: WikiDoc[]): string {
+function verificationPrompt(city: string, redaction: Redaction, docs: SourceDoc[]): string {
   return `DOSSIER DOCUMENTAIRE SUR ${city.toUpperCase()}
 ${dossier(docs)}
 
@@ -211,7 +253,7 @@ type Resultat =
 async function generateOne(
   apiKey: string,
   city: string,
-  docs: WikiDoc[],
+  docs: SourceDoc[],
   existingTitles: string[]
 ): Promise<Resultat> {
   const redaction = await chatJSON<Redaction>({
@@ -297,11 +339,11 @@ Deno.serve(async (req) => {
     return fail('Paramètre `city` manquant.');
   }
 
-  let docs: WikiDoc[];
+  let docs: SourceDoc[];
   try {
-    docs = await fetchCityDocs(city);
+    docs = await buildDossier(city);
   } catch (err) {
-    console.error('Wikipédia', err);
+    console.error('Dossier', err);
     return json(
       { created: 0, skipped: [], error: `Ancrage documentaire indisponible : ${err}` },
       502
@@ -313,7 +355,7 @@ Deno.serve(async (req) => {
   if (docs.length === 0) {
     return json({
       created: 0,
-      skipped: [`Aucun article Wikipédia exploitable pour « ${city} ».`],
+      skipped: [`Aucune source exploitable pour « ${city} » (Wikipédia et Mérimée muets).`],
       anecdotes: [],
     });
   }
@@ -349,7 +391,7 @@ Deno.serve(async (req) => {
     const sources = docs.map((doc) => ({
       url: doc.url,
       titre: doc.title,
-      editeur: 'Wikipédia',
+      editeur: doc.editeur,
     }));
 
     const notes = [
@@ -375,7 +417,7 @@ Deno.serve(async (req) => {
         sources,
         confidence: verification.confiance ?? 'faible',
         verification_notes: notes,
-        generated_by: `deepseek:${DEEPSEEK_MODEL} + wikipedia`,
+        generated_by: `deepseek:${DEEPSEEK_MODEL} + ${[...new Set(docs.map((d) => d.origine))].join('+')}`,
         status: 'draft',
       })
       .select()
@@ -397,7 +439,14 @@ Deno.serve(async (req) => {
 
   return json({
     created: created.length,
-    sources: docs.map((d) => d.url),
+    // Rend visible ce qui a réellement nourri le modèle : c'est ici qu'on voit
+    // si Mérimée a répondu, et avec quel volume.
+    dossier: docs.map((d) => ({
+      origine: d.origine,
+      titre: d.title,
+      url: d.url,
+      caracteres: d.extract.length,
+    })),
     skipped,
     anecdotes: created,
   });

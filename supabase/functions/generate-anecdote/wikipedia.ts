@@ -1,23 +1,26 @@
-// Récupère de quoi ancrer l'anecdote dans un texte qui existe vraiment.
+// Dossier documentaire Wikipédia.
 //
-// L'API MediaWiki est gratuite, sans clé et sans quota, et les communes
-// françaises y sont bien documentées. On ramène deux articles au plus :
-// celui de la ville, et « Histoire de <ville> » quand il existe.
+// L'article général d'une commune donne peu d'anecdotes : quelques lignes
+// d'histoire noyées dans la démographie. Le gisement est dans les articles
+// liés — chaque château, église, fort ou halle a souvent le sien, et c'est là
+// que se trouvent les récits datés.
+//
+// API MediaWiki : gratuite, sans clé, sans quota.
+
+import type { SourceDoc } from './sources.ts';
 
 const API = 'https://fr.wikipedia.org/w/api.php';
 
-// Wikimedia demande un User-Agent identifiable et le renvoie en 403 sinon.
+// Wikimedia demande un User-Agent identifiable et répond 403 sinon.
 const USER_AGENT = 'Anecto/1.0 (https://github.com/nollier/anecto)';
 
-const MAX_CHARS_PER_DOC = 12000;
-const MAX_CHARS_TOTAL = 20000;
+const MAX_CHARS_PER_DOC = 8000;
+const MAX_LINKED_ARTICLES = 6;
 const TIMEOUT_MS = 15000;
 
-export interface WikiDoc {
-  title: string;
-  url: string;
-  extract: string;
-}
+// Titres d'articles qui promettent du récit plutôt que de la statistique.
+const PATRIMOINE =
+  /^(église|cathédrale|abbaye|chapelle|basilique|prieuré|collégiale|couvent|château|fort|citadelle|tour|donjon|remparts?|porte|manoir|hôtel|halles?|beffroi|moulin|pont|phare|musée|temple|théâtre|arènes|aqueduc|maison|place|statue|monument)\b/i;
 
 // deno-lint-ignore no-explicit-any
 async function call(params: Record<string, string>): Promise<any> {
@@ -56,8 +59,35 @@ async function findCityTitle(city: string): Promise<string | null> {
   return (exact ?? hits[0]).title;
 }
 
-/** Extraits en texte brut pour une liste de titres. Les pages absentes sont ignorées. */
-async function fetchExtracts(titles: string[]): Promise<WikiDoc[]> {
+/** Articles liés depuis la page de la ville qui ressemblent à du patrimoine. */
+async function findLinkedHeritage(cityTitle: string): Promise<string[]> {
+  const data = await call({
+    action: 'query',
+    prop: 'links',
+    plnamespace: '0',
+    pllimit: '500',
+    titles: cityTitle,
+  });
+
+  // deno-lint-ignore no-explicit-any
+  const pages: Record<string, any> = data?.query?.pages ?? {};
+  const links: string[] = Object.values(pages).flatMap((page) =>
+    // deno-lint-ignore no-explicit-any
+    (page.links ?? []).map((l: any) => l.title as string)
+  );
+
+  const retenus = links.filter((title) => PATRIMOINE.test(title));
+
+  // Un monument dont le titre cite la ville lui appartient à coup sûr ;
+  // les autres peuvent être des articles génériques homonymes.
+  const local = (title: string) => title.toLowerCase().includes(cityTitle.toLowerCase());
+  retenus.sort((a, b) => Number(local(b)) - Number(local(a)));
+
+  return retenus.slice(0, MAX_LINKED_ARTICLES);
+}
+
+/** Extraits en texte brut. Les pages absentes sont ignorées. */
+async function fetchExtracts(titles: string[]): Promise<SourceDoc[]> {
   if (titles.length === 0) return [];
 
   const data = await call({
@@ -65,6 +95,8 @@ async function fetchExtracts(titles: string[]): Promise<WikiDoc[]> {
     prop: 'extracts|info',
     explaintext: '1',
     exsectionformat: 'plain',
+    // Sans exlimit, MediaWiki ne renvoie l'extrait que du premier titre.
+    exlimit: 'max',
     inprop: 'url',
     redirects: '1',
     titles: titles.join('|'),
@@ -76,29 +108,39 @@ async function fetchExtracts(titles: string[]): Promise<WikiDoc[]> {
   return Object.values(pages)
     .filter((page) => !page.missing && typeof page.extract === 'string')
     .map((page) => ({
+      origine: 'wikipedia' as const,
       title: page.title as string,
       url:
         (page.fullurl as string) ??
         `https://fr.wikipedia.org/wiki/${encodeURIComponent(page.title)}`,
+      editeur: 'Wikipédia',
       extract: (page.extract as string).slice(0, MAX_CHARS_PER_DOC),
     }))
-    .filter((doc) => doc.extract.trim().length > 500);
+    .filter((doc) => doc.extract.trim().length > 400);
 }
 
-export async function fetchCityDocs(city: string): Promise<WikiDoc[]> {
+export async function fetchWikipediaDocs(city: string): Promise<SourceDoc[]> {
   const cityTitle = await findCityTitle(city);
   if (!cityTitle) return [];
 
-  const docs = await fetchExtracts([cityTitle, `Histoire de ${cityTitle}`]);
+  let linked: string[] = [];
+  try {
+    linked = await findLinkedHeritage(cityTitle);
+  } catch (err) {
+    // Les articles liés sont un bonus : leur absence ne doit pas tout bloquer.
+    console.error('Wikipédia liens', err);
+  }
 
-  // L'article de la ville d'abord : c'est le plus fiable des deux.
-  docs.sort((a, b) => (a.title === cityTitle ? -1 : b.title === cityTitle ? 1 : 0));
+  const titres = [
+    cityTitle,
+    `Histoire de ${cityTitle}`,
+    `Liste des monuments historiques de ${cityTitle}`,
+    ...linked,
+  ];
 
-  let total = 0;
-  return docs.filter((doc) => {
-    if (total >= MAX_CHARS_TOTAL) return false;
-    doc.extract = doc.extract.slice(0, MAX_CHARS_TOTAL - total);
-    total += doc.extract.length;
-    return true;
-  });
+  const docs = await fetchExtracts([...new Set(titres)]);
+
+  // L'article de la ville en tête : c'est le plus fiable et le mieux relu.
+  docs.sort((a, b) => Number(b.title === cityTitle) - Number(a.title === cityTitle));
+  return docs;
 }
