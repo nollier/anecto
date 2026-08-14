@@ -7,7 +7,7 @@ Une anecdote vraie et vérifiée sur ta ville, chaque jour, à l'heure de ton ch
 - React Native + Expo (TypeScript)
 - Supabase (Auth, Postgres, Edge Functions)
 - Google Places API (New) — uniquement pour le choix de la ville
-- Claude (Anthropic) avec recherche web — génération des anecdotes en `draft`
+- DeepSeek — rédaction et auto-vérification des anecdotes, en `draft`
 - Expo Notifications (push quotidien)
 - React Navigation (bottom tabs)
 
@@ -55,12 +55,18 @@ par n'importe qui décompresse l'APK. Les clés vivent côté fonction.
 ```bash
 npx supabase secrets set \
   GOOGLE_MAPS_API_KEY=... \
-  ANTHROPIC_API_KEY=... \
+  DEEPSEEK_API_KEY=... \
   ANECTO_ADMIN_SECRET=$(openssl rand -hex 32)
 ```
 
-Optionnels : `ANECTO_ANTHROPIC_MODEL` (défaut `claude-opus-5`),
-`ANECTO_ANTHROPIC_EFFORT` (défaut `high`), `ANECTO_PLACES_REGIONS` (ex. `FR,BE,CH`).
+Optionnels : `DEEPSEEK_MODEL` (défaut `deepseek-chat`), `DEEPSEEK_BASE_URL`
+(défaut `https://api.deepseek.com`), `ANECTO_PLACES_REGIONS` (ex. `FR,BE,CH`).
+
+⚠️ La clé Google doit être **sans restriction de référent HTTP** : une Edge
+Function appelle depuis un serveur, sans référent, et une clé restreinte au
+navigateur renvoie `API_KEY_HTTP_REFERRER_BLOCKED`. Laisse « Restrictions
+relatives aux applications » sur *Aucune* et restreins uniquement l'API à
+*Places API (New)*. La clé n'est jamais livrée dans le bundle de l'app.
 
 ### Déploiement des fonctions
 
@@ -87,22 +93,32 @@ seule API et aux IP/serveur qui l'utilisent.
 ### Génération d'anecdotes — `generate-anecdote`
 
 ```bash
-curl -X POST "https://<ref>.supabase.co/functions/v1/generate-anecdote" \
+curl -X POST "https://swvhclxwchrhyhtrvmhb.supabase.co/functions/v1/generate-anecdote" \
   -H "x-anecto-admin-secret: $ANECTO_ADMIN_SECRET" \
   -H "Content-Type: application/json" \
-  -d '{"city":"Saint-Malo","cityPlaceId":"ChIJ..."}'
+  -d '{"city":"Saint-Malo","cityPlaceId":"ChIJ...","count":3}'
 ```
 
-Claude cherche sur le web côté serveur Anthropic, vérifie, puis appelle un outil
-au schéma strict (`titre`, `corps`, `periode`, `sources`, `confiance`,
-`notes_verification`). La fonction refuse d'enregistrer en dessous de deux
-sources indépendantes, et **écrit toujours en `status = 'draft'`** : rien ne
-part en notification sans relecture humaine. Un index unique sur
-`(city_place_id, lower(title))` empêche les doublons.
+Deux passes DeepSeek, avec des contextes séparés :
 
-Le modèle par défaut est `claude-opus-5`. Le repli serveur (`fallbacks`) est
-activé : si les classificateurs de sûreté refusent une requête, elle est
-rejouée automatiquement sur le modèle de repli recommandé.
+1. **rédaction** — le modèle propose une anecdote et liste les faits précis sur
+   lesquels elle repose ;
+2. **vérification** — un second appel, qui ignore qu'il relit sa propre copie,
+   examine chaque fait et rend un verdict `confirme` / `doute` / `refute`. Un
+   `refute` bloque l'enregistrement.
+
+**Ce que ça ne fait pas.** L'API DeepSeek n'expose pas d'outil de recherche web :
+la passe 2 est une auto-vérification de mémoire, pas un sourçage. Elle rattrape
+une bonne part des dates inventées avec aplomb, mais elle ne prouve rien. En
+conséquence, la fonction ne demande jamais d'URL au modèle (il en inventerait),
+seulement des *pistes de vérification* qu'un humain doit contrôler — et elle
+**écrit toujours en `status = 'draft'`**. Rien ne part en notification sans
+relecture. Un index unique sur `(city_place_id, lower(title))` empêche les
+doublons.
+
+Pour transformer l'auto-vérification en véritable sourçage, il suffira
+d'injecter dans le prompt de la passe 1 les extraits d'une API de recherche
+(Tavily, Brave) : le reste de la chaîne est déjà prévu pour stocker des sources.
 
 ## Build & publication
 

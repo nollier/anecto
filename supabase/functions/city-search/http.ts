@@ -1,3 +1,6 @@
+// Chaque fonction est autonome : pas d'import `../_shared/`, pour que le
+// déploiement soit identique via la CLI et via l'API Functions.
+
 export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers':
@@ -12,6 +15,6 @@ export function json(body: unknown, status = 200): Response {
   });
 }
 
-export function fail(message: string, status = 400, extra?: Record<string, unknown>): Response {
-  return json({ error: message, ...extra }, status);
+export function fail(message: string, status = 400): Response {
+  return json({ error: message }, status);
 }

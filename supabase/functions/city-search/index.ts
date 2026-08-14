@@ -11,7 +11,7 @@
 // Le sessionToken (UUID généré par l'app) regroupe les frappes d'une même
 // recherche et le details final en une seule session facturée par Google.
 
-import { corsHeaders, fail, json } from '../_shared/cors.ts';
+import { corsHeaders, fail, json } from './http.ts';
 
 const GOOGLE_KEY = Deno.env.get('GOOGLE_MAPS_API_KEY');
 
