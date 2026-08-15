@@ -17,15 +17,40 @@ export function newSessionToken(): string {
   });
 }
 
+/**
+ * Appelle `city-search` en remontant le message d'erreur de la fonction.
+ *
+ * supabase-js n'expose pas le corps de la réponse dans l'objet `error` : sans
+ * cette relecture, toute panne serveur devient un « FunctionsHttpError »
+ * indifférencié, et l'écran finit par accuser le réseau alors que le problème
+ * est ailleurs — une clé mal restreinte, par exemple.
+ */
+async function invoke<T>(body: Record<string, unknown>): Promise<T> {
+  const { data, error } = await supabase.functions.invoke('city-search', { body });
+  if (!error) return data as T;
+
+  const context = (error as { context?: { json?: () => Promise<{ error?: string }> } }).context;
+  if (context?.json) {
+    try {
+      const payload = await context.json();
+      if (payload?.error) throw new Error(payload.error);
+    } catch (relecture) {
+      if (relecture instanceof Error && relecture.message) throw relecture;
+    }
+  }
+  throw new Error(error.message);
+}
+
 export async function searchCities(
   input: string,
   sessionToken: string
 ): Promise<CitySuggestion[]> {
-  const { data, error } = await supabase.functions.invoke('city-search', {
-    body: { action: 'suggest', input, sessionToken, languageCode: 'fr' },
+  const data = await invoke<{ suggestions?: CitySuggestion[] }>({
+    action: 'suggest',
+    input,
+    sessionToken,
+    languageCode: 'fr',
   });
-
-  if (error) throw error;
   return data?.suggestions ?? [];
 }
 
@@ -33,11 +58,12 @@ export async function getCityDetails(
   placeId: string,
   sessionToken: string
 ): Promise<CityDetails> {
-  const { data, error } = await supabase.functions.invoke('city-search', {
-    body: { action: 'details', placeId, sessionToken, languageCode: 'fr' },
+  const data = await invoke<{ city?: CityDetails }>({
+    action: 'details',
+    placeId,
+    sessionToken,
+    languageCode: 'fr',
   });
-
-  if (error) throw error;
   if (!data?.city) throw new Error('Ville introuvable.');
   return data.city;
 }

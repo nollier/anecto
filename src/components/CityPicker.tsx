@@ -45,9 +45,11 @@ export default function CityPicker({ value, onChange }: Props) {
         if (current !== requestId.current) return;
         setSuggestions(results);
         setError(null);
-      } catch {
+      } catch (err) {
         if (current !== requestId.current) return;
-        setError('Recherche indisponible. Vérifie ta connexion.');
+        // Le message vient de l'Edge Function : il dit ce qui a réellement
+        // échoué, ce qu'un « vérifie ta connexion » générique masquerait.
+        setError(err instanceof Error ? err.message : 'Recherche indisponible.');
       } finally {
         if (current === requestId.current) setSearching(false);
       }
@@ -66,8 +68,8 @@ export default function CityPicker({ value, onChange }: Props) {
       setSuggestions([]);
       setQuery('');
       onChange(city);
-    } catch {
-      setError("Impossible de sélectionner cette ville. Réessaie.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Impossible de sélectionner cette ville.');
     } finally {
       setResolving(false);
     }
