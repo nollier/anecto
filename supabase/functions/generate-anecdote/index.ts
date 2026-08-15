@@ -28,6 +28,7 @@ import { chatJSON, DEEPSEEK_MODEL, DeepSeekError } from './deepseek.ts';
 import { fetchWikipediaDocs } from './wikipedia.ts';
 import { fetchPatrimoineDocs } from './patrimoine.ts';
 import type { SourceDoc } from './sources.ts';
+import { controler } from './verification.ts';
 import { corsHeaders, fail, json } from './http.ts';
 
 const ADMIN_SECRET = Deno.env.get('ANECTO_ADMIN_SECRET');
@@ -39,8 +40,6 @@ const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const MAX_COUNT = 5;
 const MIN_BODY_CHARS = 50; // contrainte de la table `anecdotes`
 const MAX_BODY_CHARS = 3000;
-const MIN_CITATIONS = 2;
-const MIN_CITATION_CHARS = 30;
 
 // Enveloppes de dossier, par origine : sans réservation, Wikipédia remplirait
 // tout et les notices Mérimée n'atteindraient jamais le modèle.
@@ -142,67 +141,6 @@ interface Verification {
   confiance: 'haute' | 'moyenne' | 'faible';
   problemes: string[];
   notes: string;
-}
-
-// ------------------------------------------------- contrôle déterministe
-
-/**
- * Rend deux textes comparables : minuscules, accents retirés, apostrophes et
- * tirets typographiques uniformisés, espaces réduits. Le modèle recopie
- * rarement au caractère près, mais il ne peut pas inventer une phrase entière
- * qui survive à cette normalisation.
- */
-function normalize(text: string): string {
-  return text
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[’‘`´]/g, "'")
-    .replace(/[“”«»]/g, '"')
-    .replace(/[–—]/g, '-')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-interface Controle {
-  ok: boolean;
-  reason?: string;
-  citationsValides: string[];
-}
-
-function controler(redaction: Redaction, sourceText: string): Controle {
-  const source = normalize(sourceText);
-
-  const citations = Array.isArray(redaction.citations)
-    ? redaction.citations.filter(
-        (c) => typeof c === 'string' && c.trim().length >= MIN_CITATION_CHARS
-      )
-    : [];
-
-  const valides = citations.filter((c) => source.includes(normalize(c)));
-
-  if (valides.length < MIN_CITATIONS) {
-    return {
-      ok: false,
-      citationsValides: valides,
-      reason: `${valides.length}/${citations.length} citation(s) retrouvée(s) dans la source, minimum ${MIN_CITATIONS}. Le modèle a probablement inventé.`,
-    };
-  }
-
-  // Un millésime absent de la source est le symptôme le plus fréquent de
-  // l'hallucination : le récit est plausible, la date est fabriquée.
-  const millesimes = redaction.corps.match(/\b(?:1\d{3}|20\d{2})\b/g) ?? [];
-  const inconnus = [...new Set(millesimes)].filter((annee) => !source.includes(annee));
-
-  if (inconnus.length > 0) {
-    return {
-      ok: false,
-      citationsValides: valides,
-      reason: `Millésime(s) absent(s) de la source : ${inconnus.join(', ')}.`,
-    };
-  }
-
-  return { ok: true, citationsValides: valides };
 }
 
 // ----------------------------------------------------------------- prompts

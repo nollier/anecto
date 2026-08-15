@@ -33,7 +33,9 @@ src/components/CityPicker.tsx       champ ville avec suggestions Google
 src/screens/                        AuthScreen, HomeScreen, SettingsScreen, HistoryScreen
 src/types/                          types partagés (Profile, Anecdote, CityDetails…)
 supabase/functions/city-search/     proxy Google Places (clé côté serveur)
-supabase/functions/generate-anecdote/  Wikipédia + DeepSeek → anecdote `draft`
+supabase/functions/generate-anecdote/  Wikipédia + Mérimée + DeepSeek → `draft`
+supabase/functions/send-daily-notifications/  envoi push, appelé par pg_cron
+supabase/functions/delete-account/  suppression de compte (clé de service)
 supabase/migrations/                schéma
 ```
 
@@ -75,7 +77,19 @@ relatives aux applications » sur *Aucune* et restreins uniquement l'API à
 ```bash
 npx supabase functions deploy city-search
 npx supabase functions deploy generate-anecdote
+npx supabase functions deploy send-daily-notifications
+npx supabase functions deploy delete-account
 ```
+
+## Tests
+
+```bash
+npm test
+```
+
+Couvre le contrôle des citations et des millésimes (`verification.ts`), qui est
+le garde-fou du produit : c'est la seule étape qui distingue une anecdote
+soutenue par la source d'une anecdote inventée.
 
 ### Choix de la ville — `city-search`
 
@@ -186,6 +200,41 @@ La fonction, en `security definer`, fait dans une seule transaction :
 `anecdotes` qu'une politique de lecture, sur les lignes `validated`. C'est
 précisément pourquoi la sélection vit en base.
 
+### Envoi quotidien — `send-daily-notifications`
+
+pg_cron appelle `declencher_envoi_notifications()` toutes les 15 minutes ; la
+fonction lit l'URL et le secret dans Vault, puis appelle l'Edge Function. Celle-ci
+demande à `profiles_a_notifier()` qui est dû à cette minute — heure locale de
+chaque utilisateur, fenêtre de 15 minutes, passage de minuit géré — réserve leur
+anecdote du jour, et pousse vers l'API Expo par lots de 100.
+
+Le corps du push porte le texte complet, pas seulement le titre : la plupart des
+gens liront l'anecdote dans la notification sans ouvrir l'app. Un jeton
+`DeviceNotRegistered` est effacé du profil, sinon il ferait échouer chaque envoi
+suivant. Chaque exécution écrit une ligne dans `notification_runs` :
+
+```sql
+select ran_at, due_count, sent_count, error_count, details
+from notification_runs order by ran_at desc limit 20;
+```
+
+Planification, une fois `ANECTO_ADMIN_SECRET` posé :
+
+```sql
+select vault.create_secret(
+  'https://swvhclxwchrhyhtrvmhb.supabase.co/functions/v1', 'anecto_functions_url');
+select vault.create_secret('<ANECTO_ADMIN_SECRET>', 'anecto_admin_secret');
+select cron.schedule('anecto-notifications', '*/15 * * * *',
+                     $job$select public.declencher_envoi_notifications()$job$);
+```
+
+### Suppression de compte — `delete-account`
+
+Exigée par l'App Store dès qu'une app permet de créer un compte. L'identité vient
+du JWT de l'appelant, jamais du corps de la requête ; supprimer la ligne
+`auth.users` suffit, les clés étrangères de `profiles`, `user_anecdote_history`
+et `feedback` étant en CASCADE.
+
 ## Build & publication
 
 ```bash
@@ -199,11 +248,9 @@ npx eas submit --platform android
 
 ## À faire ensuite
 
-- Cron (Supabase Cron + pg_net) pour l'envoi de la notif quotidienne par
-  utilisateur selon `notification_hour` + `timezone`
-- Afficher `source_url` et `period` dans l'app : c'est ce qui rend la promesse
-  « vérifiée » contrôlable par le lecteur
-- Le bouton « Proposer » n'ouvre pas de champ texte et perd la proposition
-- Onboarding ville + heure au premier lancement
-- Déconnexion et suppression de compte (exigée par l'App Store)
-- Ouvrir l'anecdote du jour au tap sur la notification
+- Planifier le cron (deux `vault.create_secret` + un `cron.schedule`, ci-dessus)
+- Traiter les retours : une correction ou une proposition devrait pouvoir
+  repasser une anecdote en `draft`, ou en créer une
+- `app.json` : `extra.eas.projectId` après `npx eas init`
+- Restreindre la lecture des anecdotes à `authenticated` si le corpus est la
+  valeur du produit (aujourd'hui `public` : la clé publiable suffit à l'aspirer)

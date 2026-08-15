@@ -13,6 +13,7 @@ export default function SettingsScreen() {
   const [notifTime, setNotifTime] = useState(new Date(new Date().setHours(21, 0, 0, 0)));
   const [showPicker, setShowPicker] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [suppression, setSuppression] = useState(false);
 
   useEffect(() => {
     loadProfile();
@@ -91,6 +92,38 @@ export default function SettingsScreen() {
     }
   }
 
+  async function seDeconnecter() {
+    const { error } = await supabase.auth.signOut();
+    if (error) Alert.alert('Erreur', error.message);
+    // Le changement de session est capté par App.tsx, qui rebascule sur
+    // l'écran de connexion.
+  }
+
+  function supprimerCompte() {
+    Alert.alert(
+      'Supprimer ton compte ?',
+      'Ton profil, ton historique et tes retours seront effacés définitivement. Cette action est irréversible.',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Supprimer',
+          style: 'destructive',
+          onPress: async () => {
+            setSuppression(true);
+            const { error } = await supabase.functions.invoke('delete-account', { body: {} });
+            setSuppression(false);
+
+            if (error) {
+              Alert.alert('Erreur', "La suppression n'a pas abouti. Réessaie plus tard.");
+              return;
+            }
+            await supabase.auth.signOut();
+          },
+        },
+      ]
+    );
+  }
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <Text style={styles.label}>Ta ville</Text>
@@ -125,6 +158,16 @@ export default function SettingsScreen() {
       <TouchableOpacity style={styles.saveBtn} onPress={saveProfile} disabled={saving}>
         <Text style={styles.saveBtnText}>{saving ? 'Enregistrement...' : 'Enregistrer'}</Text>
       </TouchableOpacity>
+
+      <Text style={styles.label}>Compte</Text>
+      <TouchableOpacity style={styles.secondaryBtn} onPress={seDeconnecter}>
+        <Text style={styles.secondaryBtnText}>Se déconnecter</Text>
+      </TouchableOpacity>
+      <TouchableOpacity onPress={supprimerCompte} disabled={suppression}>
+        <Text style={styles.dangerText}>
+          {suppression ? 'Suppression…' : 'Supprimer mon compte'}
+        </Text>
+      </TouchableOpacity>
     </ScrollView>
   );
 }
@@ -138,4 +181,13 @@ const styles = StyleSheet.create({
   timeBtnText: { fontSize: 22, fontWeight: '700' },
   saveBtn: { backgroundColor: '#222', padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 40 },
   saveBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  secondaryBtn: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 10,
+    padding: 14,
+    alignItems: 'center',
+  },
+  secondaryBtnText: { fontSize: 15, fontWeight: '600', color: '#1a1a1a' },
+  dangerText: { textAlign: 'center', color: '#b3402f', fontSize: 14, marginTop: 20 },
 });
