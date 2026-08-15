@@ -41,7 +41,7 @@ supabase/migrations/                schéma
 
 ## Connexion
 
-Code à 6 chiffres, pas de lien magique : un lien suppose une URL de redirection
+Code numérique reçu par email, pas de lien magique : un lien suppose une URL de redirection
 vers l'app, donc un lien profond et une liste blanche qui casse à chaque tunnel
 Expo — et il est à usage unique, donc consommé par les scanners de sécurité des
 messageries avant que l'utilisateur ne clique.
