@@ -59,36 +59,52 @@ export default function SettingsScreen() {
     }
 
     setSaving(true);
-    const { data: userData } = await supabase.auth.getUser();
-    if (!userData.user) {
-      setSaving(false);
-      return;
-    }
 
-    const pushToken = await registerForPushNotificationsAsync();
-    const hh = String(notifTime.getHours()).padStart(2, '0');
-    const mm = String(notifTime.getMinutes()).padStart(2, '0');
+    // try/finally : sans lui, la moindre exception laisse le bouton bloqué sur
+    // « Enregistrement… » sans le moindre message.
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData.user) {
+        Alert.alert('Session expirée', 'Reconnecte-toi pour enregistrer.');
+        return;
+      }
 
-    const { error } = await supabase.from('profiles').upsert({
-      id: userData.user.id,
-      city: city.name,
-      city_place_id: city.placeId,
-      city_lat: city.latitude,
-      city_lng: city.longitude,
-      country_code: city.countryCode,
-      timezone: deviceTimezone(),
-      notification_hour: `${hh}:${mm}:00`,
-      expo_push_token: pushToken,
-      updated_at: new Date().toISOString(),
-    });
+      const pushToken = await registerForPushNotificationsAsync();
+      const hh = String(notifTime.getHours()).padStart(2, '0');
+      const mm = String(notifTime.getMinutes()).padStart(2, '0');
 
-    setSaving(false);
+      const { error } = await supabase.from('profiles').upsert({
+        id: userData.user.id,
+        city: city.name,
+        city_place_id: city.placeId,
+        city_lat: city.latitude,
+        city_lng: city.longitude,
+        country_code: city.countryCode,
+        timezone: deviceTimezone(),
+        notification_hour: `${hh}:${mm}:00`,
+        // Absent du payload quand il n'y a pas de jeton : l'omettre préserve
+        // celui déjà en base, alors qu'un null l'effacerait — un test depuis
+        // Expo Go couperait sinon les notifications d'un vrai build.
+        ...(pushToken ? { expo_push_token: pushToken } : {}),
+        updated_at: new Date().toISOString(),
+      });
 
-    if (error) {
-      Alert.alert('Erreur', error.message);
-    } else {
+      if (error) {
+        Alert.alert('Erreur', error.message);
+        return;
+      }
+
       setLegacyCity(null);
-      Alert.alert('Enregistré', `Anecdotes de ${city.name} tous les jours à ${hh}:${mm}.`);
+      Alert.alert(
+        'Enregistré',
+        pushToken
+          ? `Anecdotes de ${city.name} tous les jours à ${hh}:${mm}.`
+          : `Anecdotes de ${city.name} tous les jours à ${hh}:${mm}.\n\nLes notifications ne sont pas disponibles ici (Expo Go, ou projectId EAS manquant) : l'anecdote reste consultable dans l'onglet Aujourd'hui.`
+      );
+    } catch (err) {
+      Alert.alert('Erreur', err instanceof Error ? err.message : "L'enregistrement a échoué.");
+    } finally {
+      setSaving(false);
     }
   }
 
