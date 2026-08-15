@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 
-// Connexion par code à 6 chiffres plutôt que par lien magique.
+// Connexion par code reçu par email, plutôt que par lien magique.
 //
 // Un lien magique suppose une URL de redirection qui ramène vers l'app — donc
 // un lien profond, une liste blanche à tenir à jour dans Supabase, et une
@@ -23,7 +23,12 @@ import { supabase } from '../lib/supabase';
 // Le code n'a aucun de ces problèmes : il transite par l'écran, pas par le
 // système d'exploitation.
 
-const LONGUEUR_CODE = 6;
+// La longueur du code est un réglage de projet Supabase (Authentication →
+// Sign In / Providers → Email OTP Length), pas une constante du protocole.
+// L'écran accepte donc toute la plage plutôt que de figer une valeur qui
+// tronquerait silencieusement la saisie.
+const CODE_MIN = 6;
+const CODE_MAX = 10;
 
 export default function AuthScreen() {
   const [email, setEmail] = useState('');
@@ -57,7 +62,7 @@ export default function AuthScreen() {
 
   async function verifierCode() {
     const saisie = code.trim();
-    if (saisie.length !== LONGUEUR_CODE) return;
+    if (saisie.length < CODE_MIN) return;
 
     setLoading(true);
     const { error } = await supabase.auth.verifyOtp({
@@ -108,25 +113,25 @@ export default function AuthScreen() {
       ) : (
         <>
           <Text style={styles.consigne}>
-            Code envoyé à {email}. Saisis les {LONGUEUR_CODE} chiffres reçus.
+            Code envoyé à {email}. Saisis les chiffres reçus.
           </Text>
           <TextInput
             style={styles.codeInput}
             value={code}
-            onChangeText={(t) => setCode(t.replace(/\D/g, '').slice(0, LONGUEUR_CODE))}
+            onChangeText={(t) => setCode(t.replace(/\D/g, '').slice(0, CODE_MAX))}
             placeholder="000000"
             keyboardType="number-pad"
             textContentType="oneTimeCode"
             autoComplete="one-time-code"
-            maxLength={LONGUEUR_CODE}
+            maxLength={CODE_MAX}
             autoFocus
             editable={!loading}
             onSubmitEditing={verifierCode}
           />
           <TouchableOpacity
-            style={[styles.btn, code.length !== LONGUEUR_CODE && styles.btnDisabled]}
+            style={[styles.btn, code.length < CODE_MIN && styles.btnDisabled]}
             onPress={verifierCode}
-            disabled={loading || code.length !== LONGUEUR_CODE}
+            disabled={loading || code.length < CODE_MIN}
           >
             {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Se connecter</Text>}
           </TouchableOpacity>
@@ -161,8 +166,8 @@ const styles = StyleSheet.create({
     borderColor: '#ddd',
     borderRadius: 10,
     padding: 14,
-    fontSize: 32,
-    letterSpacing: 8,
+    fontSize: 28,
+    letterSpacing: 6,
     textAlign: 'center',
     marginBottom: 16,
   },

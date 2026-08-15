@@ -59,6 +59,18 @@ le code :
 `{{ .Token }}` est le code ; `{{ .ConfirmationURL }}` est le lien, qui n'est plus
 utilisé.
 
+La longueur du code est un réglage de projet (**Authentication → Sign In /
+Providers → Email OTP Length**, 6 à 10 chiffres). L'écran accepte toute la
+plage : rien à changer dans l'app si tu la modifies.
+
+Le service d'email intégré de Supabase est bridé à quelques envois par heure et
+ne livre qu'aux membres de l'organisation. Pour tester au-delà, configurer un
+SMTP : avec Gmail, `smtp.gmail.com` sur le port 465, l'adresse d'expéditeur
+**doit** être celle du compte SMTP, et le mot de passe d'application se saisit
+sans les espaces que Google affiche. Gmail plafonne à ~500 envois par jour et
+sans SPF/DKIM alignés — pour la production, un service transactionnel avec ton
+propre domaine.
+
 ## Backend Supabase (projet `anecto`)
 
 Tables : `profiles`, `anecdotes`, `user_anecdote_history`, `feedback`.
