@@ -39,6 +39,38 @@ supabase/functions/delete-account/  suppression de compte (clé de service)
 supabase/migrations/                schéma
 ```
 
+## Connexion
+
+Code numérique reçu par email, pas de lien magique : un lien suppose une URL de redirection
+vers l'app, donc un lien profond et une liste blanche qui casse à chaque tunnel
+Expo — et il est à usage unique, donc consommé par les scanners de sécurité des
+messageries avant que l'utilisateur ne clique.
+
+Côté Supabase, **Authentication → Emails → Magic Link**, le gabarit doit exposer
+le code :
+
+```html
+<h2>Ton code de connexion Anecto</h2>
+<p>Saisis ce code dans l'application :</p>
+<p style="font-size:28px;letter-spacing:6px"><strong>{{ .Token }}</strong></p>
+<p>Il expire dans une heure.</p>
+```
+
+`{{ .Token }}` est le code ; `{{ .ConfirmationURL }}` est le lien, qui n'est plus
+utilisé.
+
+La longueur du code est un réglage de projet (**Authentication → Sign In /
+Providers → Email OTP Length**, 6 à 10 chiffres). L'écran accepte toute la
+plage : rien à changer dans l'app si tu la modifies.
+
+Le service d'email intégré de Supabase est bridé à quelques envois par heure et
+ne livre qu'aux membres de l'organisation. Pour tester au-delà, configurer un
+SMTP : avec Gmail, `smtp.gmail.com` sur le port 465, l'adresse d'expéditeur
+**doit** être celle du compte SMTP, et le mot de passe d'application se saisit
+sans les espaces que Google affiche. Gmail plafonne à ~500 envois par jour et
+sans SPF/DKIM alignés — pour la production, un service transactionnel avec ton
+propre domaine.
+
 ## Backend Supabase (projet `anecto`)
 
 Tables : `profiles`, `anecdotes`, `user_anecdote_history`, `feedback`.
