@@ -39,6 +39,26 @@ supabase/functions/delete-account/  suppression de compte (clé de service)
 supabase/migrations/                schéma
 ```
 
+## Connexion
+
+Code à 6 chiffres, pas de lien magique : un lien suppose une URL de redirection
+vers l'app, donc un lien profond et une liste blanche qui casse à chaque tunnel
+Expo — et il est à usage unique, donc consommé par les scanners de sécurité des
+messageries avant que l'utilisateur ne clique.
+
+Côté Supabase, **Authentication → Emails → Magic Link**, le gabarit doit exposer
+le code :
+
+```html
+<h2>Ton code de connexion Anecto</h2>
+<p>Saisis ce code dans l'application :</p>
+<p style="font-size:28px;letter-spacing:6px"><strong>{{ .Token }}</strong></p>
+<p>Il expire dans une heure.</p>
+```
+
+`{{ .Token }}` est le code ; `{{ .ConfirmationURL }}` est le lien, qui n'est plus
+utilisé.
+
 ## Backend Supabase (projet `anecto`)
 
 Tables : `profiles`, `anecdotes`, `user_anecdote_history`, `feedback`.
