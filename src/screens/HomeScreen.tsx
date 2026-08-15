@@ -17,48 +17,20 @@ export default function HomeScreen() {
   async function loadTodayAnecdote() {
     setLoading(true);
 
-    const { data: profile } = await supabase.auth.getUser();
-    if (!profile.user) {
-      setLoading(false);
-      return;
-    }
-
-    const { data: profileData } = await supabase
-      .from('profiles')
-      .select('city, city_place_id')
-      .eq('id', profile.user.id)
-      .single();
-
-    if (!profileData) {
-      setLoading(false);
-      return;
-    }
-
-    // Anecdote validée, la moins souvent servie en priorité, pour cette ville.
-    // Le rattachement se fait par place_id Google ; `city` ne sert de repli que
-    // pour les profils créés avant l'autocomplétion.
-    const query = supabase
-      .from('anecdotes')
-      .select('*')
-      .eq('status', 'validated')
-      .order('reuse_count', { ascending: true })
-      .limit(1);
-
-    const { data, error } = await (profileData.city_place_id
-      ? query.eq('city_place_id', profileData.city_place_id)
-      : query.eq('city', profileData.city)
-    ).maybeSingle();
+    // Toute la logique vit dans une fonction Postgres : rotation, exclusion de
+    // ce que l'utilisateur a déjà lu, incrément du compteur et écriture de
+    // l'historique, en une transaction. Rouvrir l'onglet dans la journée
+    // renvoie la même anecdote plutôt que d'en consommer une de plus.
+    const { data, error } = await supabase.rpc('get_daily_anecdote');
 
     if (error) {
       console.error(error);
-    } else if (data) {
-      setAnecdote(data);
-      await supabase.from('user_anecdote_history').insert({
-        user_id: profile.user.id,
-        anecdote_id: data.id,
-      });
     }
 
+    setAnecdote((data as Anecdote | null) ?? null);
+    setFeedbackGiven(null);
+    setCorrectionMode(false);
+    setCorrectionText('');
     setLoading(false);
   }
 
@@ -67,18 +39,19 @@ export default function HomeScreen() {
     const { data: userData } = await supabase.auth.getUser();
     if (!userData.user) return;
 
-    await supabase.from('feedback').insert({
+    // `reuse_count` n'est plus touché ici : RLS interdit toute écriture du
+    // client sur `anecdotes`, et le compteur appartient désormais à
+    // get_daily_anecdote(), qui l'incrémente à l'envoi.
+    const { error } = await supabase.from('feedback').insert({
       user_id: userData.user.id,
       anecdote_id: anecdote.id,
       type,
       comment: comment ?? null,
     });
 
-    if (type === 'adore') {
-      await supabase
-        .from('anecdotes')
-        .update({ reuse_count: anecdote.reuse_count + 1 })
-        .eq('id', anecdote.id);
+    if (error) {
+      Alert.alert("Retour non enregistré", "Réessaie dans un instant.");
+      return;
     }
 
     setFeedbackGiven(type);

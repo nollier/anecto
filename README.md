@@ -150,6 +150,42 @@ tous supports confondus — le rythme quotidien suppose donc d'élargir le
 périmètre géographique quand une ville est épuisée, ou d'assumer un cycle de
 reprise.
 
+### Relecture — `anecdotes_a_valider`
+
+La génération n'écrit qu'en `draft` ; rien n'atteint un lecteur avant relecture
+humaine. La file se lit dans le Table Editor de Supabase :
+
+```sql
+select * from anecdotes_a_valider;
+```
+
+Les brouillons les plus sûrs remontent en premier (`confidence` décroissante).
+Pour chacun : lire `verification_notes` (verdict, problèmes signalés, citations
+retrouvées automatiquement), ouvrir `source_url`, puis passer `status` à
+`validated` — un déclencheur remplit `validated_at` tout seul. Un `rejected`
+laisse l'anecdote en base sans jamais la servir.
+
+La vue est en `security_invoker` et révoquée pour `anon` et `authenticated` :
+elle n'est lisible qu'avec la clé de service ou depuis le dashboard.
+
+### Sélection quotidienne — `get_daily_anecdote()`
+
+L'app n'orchestre plus rien : un seul `supabase.rpc('get_daily_anecdote')`.
+La fonction, en `security definer`, fait dans une seule transaction :
+
+- si l'utilisateur a déjà reçu une anecdote aujourd'hui **dans son fuseau**,
+  elle renvoie la même — rouvrir l'app n'en consomme pas une de plus ;
+- sinon elle prend la moins servie parmi celles de sa ville qu'il n'a jamais
+  lues (`random()` départage les ex aequo), écrit l'historique et incrémente
+  `reuse_count` ;
+- si deux appareils appellent en même temps, l'index unique
+  `(user_id, sent_on)` tranche et le perdant reçoit le choix du gagnant ;
+- plus rien à servir renvoie `null`.
+
+`reuse_count` ne peut pas être incrémenté depuis l'app : RLS n'accorde à
+`anecdotes` qu'une politique de lecture, sur les lignes `validated`. C'est
+précisément pourquoi la sélection vit en base.
+
 ## Build & publication
 
 ```bash
@@ -163,8 +199,11 @@ npx eas submit --platform android
 
 ## À faire ensuite
 
-- Interface/process de validation avant passage en `validated`
-- Cron (Supabase Cron ou n8n) pour l'envoi de la notif quotidienne par utilisateur
-  selon `notification_hour` + `timezone`
-- Sélection quotidienne côté serveur (fonction Postgres) : rotation, exclusion de
-  l'historique, incrément de `reuse_count` dans une seule transaction
+- Cron (Supabase Cron + pg_net) pour l'envoi de la notif quotidienne par
+  utilisateur selon `notification_hour` + `timezone`
+- Afficher `source_url` et `period` dans l'app : c'est ce qui rend la promesse
+  « vérifiée » contrôlable par le lecteur
+- Le bouton « Proposer » n'ouvre pas de champ texte et perd la proposition
+- Onboarding ville + heure au premier lancement
+- Déconnexion et suppression de compte (exigée par l'App Store)
+- Ouvrir l'anecdote du jour au tap sur la notification
