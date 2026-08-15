@@ -1,22 +1,34 @@
 import 'react-native-url-polyfill/auto';
-import React, { useEffect, useState } from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import React, { useEffect, useRef, useState } from 'react';
+import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StatusBar } from 'expo-status-bar';
 import { View, ActivityIndicator } from 'react-native';
+import * as Notifications from 'expo-notifications';
 import type { Session } from '@supabase/supabase-js';
 
 import { supabase } from './src/lib/supabase';
+import { syncPushToken } from './src/lib/notifications';
 import HomeScreen from './src/screens/HomeScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import HistoryScreen from './src/screens/HistoryScreen';
 import AuthScreen from './src/screens/AuthScreen';
 
 const Tab = createBottomTabNavigator();
+const navigationRef = createNavigationContainerRef();
+
+const ONGLET_DU_JOUR = "Aujourd'hui";
+
+function ouvrirAnecdoteDuJour() {
+  if (navigationRef.isReady()) {
+    navigationRef.navigate(ONGLET_DU_JOUR as never);
+  }
+}
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const dernierJetonSynchronise = useRef<string | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -29,6 +41,27 @@ export default function App() {
     });
 
     return () => subscription.subscription.unsubscribe();
+  }, []);
+
+  // Le jeton push est réenregistré à chaque ouverture de session : il change
+  // à la réinstallation ou à la restauration d'une sauvegarde, et sans ça les
+  // notifications cesseraient sans que personne ne s'en aperçoive.
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId || dernierJetonSynchronise.current === userId) return;
+    dernierJetonSynchronise.current = userId;
+    syncPushToken(userId);
+  }, [session]);
+
+  // Un tap sur la notification doit ouvrir l'anecdote, pas l'onglet où
+  // l'utilisateur s'était arrêté la veille.
+  useEffect(() => {
+    Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (response) ouvrirAnecdoteDuJour();
+    });
+
+    const listener = Notifications.addNotificationResponseReceivedListener(ouvrirAnecdoteDuJour);
+    return () => listener.remove();
   }, []);
 
   if (loading) {
@@ -49,10 +82,10 @@ export default function App() {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef}>
       <StatusBar style="dark" />
       <Tab.Navigator screenOptions={{ headerShown: false }}>
-        <Tab.Screen name="Aujourd'hui" component={HomeScreen} />
+        <Tab.Screen name={ONGLET_DU_JOUR} component={HomeScreen} />
         <Tab.Screen name="Historique" component={HistoryScreen} />
         <Tab.Screen name="Réglages" component={SettingsScreen} />
       </Tab.Navigator>
