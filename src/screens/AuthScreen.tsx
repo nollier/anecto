@@ -29,6 +29,8 @@ import { supabase } from '../lib/supabase';
 // tronquerait silencieusement la saisie.
 const CODE_MIN = 6;
 const CODE_MAX = 10;
+// Sert uniquement d'indice visuel : à aligner sur le réglage du projet.
+const CODE_ATTENDU = 8;
 
 export default function AuthScreen() {
   const [email, setEmail] = useState('');
@@ -119,7 +121,7 @@ export default function AuthScreen() {
             style={styles.codeInput}
             value={code}
             onChangeText={(t) => setCode(t.replace(/\D/g, '').slice(0, CODE_MAX))}
-            placeholder="000000"
+            placeholder={'0'.repeat(CODE_ATTENDU)}
             keyboardType="number-pad"
             textContentType="oneTimeCode"
             autoComplete="one-time-code"
