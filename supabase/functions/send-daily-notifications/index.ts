@@ -1,9 +1,11 @@
 // Envoi quotidien. Appelée toutes les 15 minutes par pg_cron, via
 // declencher_envoi_notifications() qui lit les secrets dans Vault.
 //
-// Le rituel se joue ici, pas dans l'app : la plupart des gens liront
-// l'anecdote dans la notification sans jamais l'ouvrir. Le corps du push
-// porte donc le texte complet, pas seulement le titre.
+// La notification ne porte pas l'anecdote : elle l'annonce. Le texte entier
+// tenait dans un push, mais il fallait déplier la notification pour le lire,
+// et une fois lu il n'y avait plus aucune raison d'ouvrir l'app — donc plus
+// d'historique, plus de source à vérifier, plus de retours. L'amorce nomme la
+// ville et le titre du jour, et s'arrête là.
 //
 // Chaque exécution laisse une trace dans `notification_runs` — sinon un cron
 // en panne est invisible jusqu'au premier désabonnement.
@@ -18,7 +20,24 @@ const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const EXPO_BATCH_SIZE = 100; // limite de l'API Expo
 const FENETRE_MINUTES = 15; // doit correspondre au pas du cron
-const CORPS_MAX = 900;
+
+// Quatre ouvertures en rotation : la même phrase tous les soirs finirait par
+// ne plus être lue. L'index vient du quantième, donc tout le monde reçoit la
+// même formulation le même jour.
+const OUVERTURES = [
+  (ville: string) => `C'est l'heure de ton anecdote sur ${ville}`,
+  (ville: string) => `Ton anecdote du jour sur ${ville}`,
+  (ville: string) => `${ville} comme tu ne la connais pas`,
+  (ville: string) => `Une histoire de ${ville} t'attend`,
+];
+
+function amorce(ville: string, titre: string): { title: string; body: string } {
+  const jour = Math.floor(Date.now() / 86_400_000);
+  return {
+    title: OUVERTURES[jour % OUVERTURES.length](ville),
+    body: `Aujourd'hui, on découvre « ${titre} ».`,
+  };
+}
 
 interface Cible {
   user_id: string;
@@ -104,10 +123,12 @@ Deno.serve(async (req) => {
       continue;
     }
 
+    const { title, body } = amorce(data.city, data.title);
+
     messages.push({
       to: cible.expo_push_token,
-      title: data.title,
-      body: String(data.body ?? '').slice(0, CORPS_MAX),
+      title,
+      body,
       sound: 'default',
       data: { anecdoteId: data.id },
     });

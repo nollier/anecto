@@ -208,10 +208,18 @@ demande à `profiles_a_notifier()` qui est dû à cette minute — heure locale 
 chaque utilisateur, fenêtre de 15 minutes, passage de minuit géré — réserve leur
 anecdote du jour, et pousse vers l'API Expo par lots de 100.
 
-Le corps du push porte le texte complet, pas seulement le titre : la plupart des
-gens liront l'anecdote dans la notification sans ouvrir l'app. Un jeton
-`DeviceNotRegistered` est effacé du profil, sinon il ferait échouer chaque envoi
-suivant. Chaque exécution écrit une ligne dans `notification_runs` :
+La notification ne porte pas l'anecdote : elle l'annonce. Le texte entier tenait
+dans un push, mais il fallait déplier la notification pour le lire, et une fois
+lu il n'y avait plus de raison d'ouvrir l'app — donc plus d'historique, plus de
+source à vérifier, plus de retours. L'amorce nomme la ville et le titre du jour :
+
+> **C'est l'heure de ton anecdote sur Saint-Malo**
+> Aujourd'hui, on découvre « Les chiens du guet ».
+
+Quatre ouvertures tournent selon le quantième, pour que la même phrase ne
+revienne pas tous les soirs. Un jeton `DeviceNotRegistered` est effacé du
+profil, sinon il ferait échouer chaque envoi suivant. Chaque exécution écrit une
+ligne dans `notification_runs` :
 
 ```sql
 select ran_at, due_count, sent_count, error_count, details
