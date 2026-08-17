@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,9 @@ import {
   Alert,
   Linking,
   RefreshControl,
+  KeyboardAvoidingView,
+  Keyboard,
+  Platform,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
@@ -27,6 +30,19 @@ export default function HomeScreen() {
   const [feedbackGiven, setFeedbackGiven] = useState<FeedbackType | null>(null);
   const [saisie, setSaisie] = useState<SaisieLibre>(null);
   const [texteLibre, setTexteLibre] = useState('');
+  const scrollRef = useRef<ScrollView>(null);
+
+  // Le champ de saisie est en bas d'une anecdote de 300 à 450 mots : à
+  // l'ouverture du clavier il se retrouve dessous, et on écrit à l'aveugle.
+  // On attend `keyboardDidShow` plutôt que `onFocus` — à cet instant seulement
+  // la hauteur disponible est connue, donc `scrollToEnd` vise juste.
+  useEffect(() => {
+    if (!saisie) return;
+    const sub = Keyboard.addListener('keyboardDidShow', () => {
+      scrollRef.current?.scrollToEnd({ animated: true });
+    });
+    return () => sub.remove();
+  }, [saisie]);
 
   // Recharge à chaque retour sur l'onglet : changer de ville dans les Réglages
   // doit se voir immédiatement.
@@ -162,80 +178,92 @@ export default function HomeScreen() {
       : "Qu'est-ce qui manque ou est incorrect ?";
 
   return (
-    <ScrollView
+    <KeyboardAvoidingView
       style={styles.container}
-      contentContainerStyle={styles.content}
-      keyboardShouldPersistTaps="handled"
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadTodayAnecdote(); }} />
-      }
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <Text style={styles.eyebrow}>
-        📖 Anecdote du jour · {anecdote.city}
-        {anecdote.period ? ` · ${anecdote.period}` : ''}
-      </Text>
-      {/* L'accroche porte le titre à l'écran. `title` reste l'étiquette courte
-          de la notification — les anecdotes générées avant l'accroche n'en ont
-          pas, d'où le repli. */}
-      <Text style={styles.title}>{anecdote.hook || anecdote.title}</Text>
-      <Text style={styles.body}>{anecdote.body}</Text>
+      <ScrollView
+        ref={scrollRef}
+        style={styles.container}
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        // Referme le clavier au glissement : sur un texte long, on veut souvent
+        // relire l'anecdote pendant qu'on rédige sa correction.
+        keyboardDismissMode="interactive"
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadTodayAnecdote(); }} />
+        }
+      >
+        <Text style={styles.eyebrow}>
+          📖 Anecdote du jour · {anecdote.city}
+          {anecdote.period ? ` · ${anecdote.period}` : ''}
+        </Text>
+        {/* L'accroche porte le titre à l'écran. `title` reste l'étiquette courte
+            de la notification — les anecdotes générées avant l'accroche n'en ont
+            pas, d'où le repli. */}
+        <Text style={styles.title}>{anecdote.hook || anecdote.title}</Text>
+        <Text style={styles.body}>{anecdote.body}</Text>
 
-      {/* La source cliquable est ce qui rend « vérifiée » contrôlable par le
-          lecteur, au lieu d'être une promesse à croire sur parole. */}
-      {anecdote.source_url ? (
-        <TouchableOpacity onPress={ouvrirSource} accessibilityRole="link">
-          <Text style={styles.sourceLink}>Source : {anecdote.source} ↗</Text>
-        </TouchableOpacity>
-      ) : (
-        <Text style={styles.source}>Source : {anecdote.source}</Text>
-      )}
+        {/* La source cliquable est ce qui rend « vérifiée » contrôlable par le
+            lecteur, au lieu d'être une promesse à croire sur parole. */}
+        {anecdote.source_url ? (
+          <TouchableOpacity onPress={ouvrirSource} accessibilityRole="link">
+            <Text style={styles.sourceLink}>Source : {anecdote.source} ↗</Text>
+          </TouchableOpacity>
+        ) : (
+          <Text style={styles.source}>Source : {anecdote.source}</Text>
+        )}
 
-      {!feedbackGiven && !saisie && (
-        <View style={styles.feedbackBlock}>
-          <Text style={styles.feedbackQuestion}>Comment trouvez-vous cette anecdote ?</Text>
-          <View style={styles.feedbackRow}>
-            <TouchableOpacity style={styles.feedbackBtn} onPress={() => submitFeedback('adore')}>
-              <Text style={styles.feedbackBtnText}>😍 J'adore</Text>
+        {!feedbackGiven && !saisie && (
+          <View style={styles.feedbackBlock}>
+            <Text style={styles.feedbackQuestion}>Comment trouvez-vous cette anecdote ?</Text>
+            <View style={styles.feedbackRow}>
+              <TouchableOpacity style={styles.feedbackBtn} onPress={() => submitFeedback('adore')}>
+                <Text style={styles.feedbackBtnText}>😍 J'adore</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.feedbackBtn} onPress={() => setSaisie('incomplete')}>
+                <Text style={styles.feedbackBtnText}>✏️ Incomplète</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.feedbackBtn} onPress={() => setSaisie('propose')}>
+                <Text style={styles.feedbackBtnText}>💡 Proposer</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {saisie && (
+          <View style={styles.feedbackBlock}>
+            <Text style={styles.feedbackQuestion}>{question}</Text>
+            <TextInput
+              style={styles.input}
+              multiline
+              // Ouvre le clavier dès le choix du bouton : une frappe de moins,
+              // et c'est ce qui déclenche la remontée du champ.
+              autoFocus
+              value={texteLibre}
+              onChangeText={setTexteLibre}
+              placeholder={
+                saisie === 'propose'
+                  ? 'Raconte-la, avec sa source si tu la connais…'
+                  : 'Décris la correction…'
+              }
+            />
+            <TouchableOpacity
+              style={[styles.submitBtn, !texteLibre.trim() && styles.submitBtnDisabled]}
+              disabled={!texteLibre.trim()}
+              onPress={() => submitFeedback(saisie, texteLibre)}
+            >
+              <Text style={styles.submitBtnText}>Envoyer</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.feedbackBtn} onPress={() => setSaisie('incomplete')}>
-              <Text style={styles.feedbackBtnText}>✏️ Incomplète</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.feedbackBtn} onPress={() => setSaisie('propose')}>
-              <Text style={styles.feedbackBtnText}>💡 Proposer</Text>
+            <TouchableOpacity onPress={() => setSaisie(null)}>
+              <Text style={styles.cancel}>Annuler</Text>
             </TouchableOpacity>
           </View>
-        </View>
-      )}
+        )}
 
-      {saisie && (
-        <View style={styles.feedbackBlock}>
-          <Text style={styles.feedbackQuestion}>{question}</Text>
-          <TextInput
-            style={styles.input}
-            multiline
-            value={texteLibre}
-            onChangeText={setTexteLibre}
-            placeholder={
-              saisie === 'propose'
-                ? 'Raconte-la, avec sa source si tu la connais…'
-                : 'Décris la correction…'
-            }
-          />
-          <TouchableOpacity
-            style={[styles.submitBtn, !texteLibre.trim() && styles.submitBtnDisabled]}
-            disabled={!texteLibre.trim()}
-            onPress={() => submitFeedback(saisie, texteLibre)}
-          >
-            <Text style={styles.submitBtnText}>Envoyer</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => setSaisie(null)}>
-            <Text style={styles.cancel}>Annuler</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {feedbackGiven && <Text style={styles.thanksText}>Merci pour ton retour 🙌</Text>}
-    </ScrollView>
+        {feedbackGiven && <Text style={styles.thanksText}>Merci pour ton retour 🙌</Text>}
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
