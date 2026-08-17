@@ -174,7 +174,10 @@ export default function HomeScreen() {
         📖 Anecdote du jour · {anecdote.city}
         {anecdote.period ? ` · ${anecdote.period}` : ''}
       </Text>
-      <Text style={styles.title}>{anecdote.title}</Text>
+      {/* L'accroche porte le titre à l'écran. `title` reste l'étiquette courte
+          de la notification — les anecdotes générées avant l'accroche n'en ont
+          pas, d'où le repli. */}
+      <Text style={styles.title}>{anecdote.hook || anecdote.title}</Text>
       <Text style={styles.body}>{anecdote.body}</Text>
 
       {/* La source cliquable est ce qui rend « vérifiée » contrôlable par le
@@ -241,8 +244,11 @@ const styles = StyleSheet.create({
   content: { padding: 20, paddingTop: 60, paddingBottom: 40 },
   center: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   eyebrow: { fontSize: 13, color: '#888', marginBottom: 8, fontWeight: '600' },
-  title: { fontSize: 24, fontWeight: '700', marginBottom: 16, color: '#1a1a1a' },
-  body: { fontSize: 16, lineHeight: 24, color: '#333' },
+  // Une accroche fait une à deux lignes de plus qu'un titre de quatre mots :
+  // 24 points la faisaient déborder sur quatre lignes.
+  title: { fontSize: 21, fontWeight: '700', lineHeight: 28, marginBottom: 18, color: '#1a1a1a' },
+  // Le corps se lit maintenant sur plusieurs paragraphes : l'interligne compte.
+  body: { fontSize: 16, lineHeight: 26, color: '#333' },
   source: { fontSize: 12, color: '#999', marginTop: 16, fontStyle: 'italic' },
   sourceLink: { fontSize: 12, color: '#007AFF', marginTop: 16 },
   emptyTitle: { fontSize: 20, fontWeight: '700', marginBottom: 12, color: '#1a1a1a' },

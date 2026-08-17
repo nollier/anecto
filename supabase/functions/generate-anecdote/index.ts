@@ -38,12 +38,17 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
 const MAX_COUNT = 5;
-const MIN_BODY_CHARS = 50; // contrainte de la table `anecdotes`
-const MAX_BODY_CHARS = 3000;
+
+// Un récit de 300 à 450 mots, pas un paragraphe. Le plancher est là pour
+// refuser un texte court : le modèle, faute de matière, a tendance à rendre
+// trois phrases plutôt qu'à répondre trouve = false.
+const MIN_BODY_CHARS = 1200;
+const MAX_BODY_CHARS = 3800; // la table plafonne à 4000
+const MAX_ACCROCHE_CHARS = 180;
 
 // Enveloppes de dossier, par origine : sans réservation, Wikipédia remplirait
 // tout et les notices Mérimée n'atteindraient jamais le modèle.
-const MAX_CHARS_WIKIPEDIA = 28000;
+const MAX_CHARS_WIKIPEDIA = 60000;
 const MAX_CHARS_MERIMEE = 12000;
 
 /** Tronque une liste de documents à un budget global de caractères. */
@@ -80,25 +85,42 @@ async function buildDossier(city: string): Promise<SourceDoc[]> {
 
 // ---------------------------------------------------------------- passe 1
 
-const REDACTION_SYSTEM = `Tu écris des anecdotes d'histoire locale à partir d'un dossier documentaire qu'on te fournit. Tu ne disposes d'aucune autre source, et ta mémoire ne fait pas foi : tout ce que tu écris doit se trouver dans le dossier.
+const REDACTION_SYSTEM = `Tu racontes des histoires vraies d'histoire locale à partir d'un dossier documentaire qu'on te fournit. Tu ne disposes d'aucune autre source, et ta mémoire ne fait pas foi : tout ce que tu écris doit se trouver dans le dossier.
 
-Ce qui fait une bonne anecdote : une coutume disparue, un épisode historique daté, l'origine d'un toponyme, un usage oublié d'un bâtiment. Pas de généralité géographique, pas de guide touristique, pas de démographie.
+Ce qui fait un bon sujet : une coutume disparue, un épisode historique daté, l'origine d'un toponyme, un usage oublié d'un bâtiment, une prouesse technique, un objet qui a survécu. Pas de généralité géographique, pas de guide touristique, pas de démographie.
 
-Règles absolues :
-- N'écris aucune date, aucun chiffre, aucun nom propre qui ne figure pas dans le dossier.
-- Pour chaque anecdote, recopie dans "citations" les phrases exactes du dossier qui l'établissent — caractère pour caractère, sans reformuler, sans couper un mot, sans corriger la ponctuation. Ces citations sont comparées automatiquement au dossier : une citation approximative fait rejeter tout le travail.
-- Il te faut au moins deux citations distinctes.
-- Si le dossier ne contient rien qui fasse une anecdote, renvoie trouve = false. C'est une réponse acceptable et attendue.
+FORME ATTENDUE
 
-Style : titre de 2 à 6 mots sans point final ; corps de 60 à 110 mots, au présent, une seule idée, sans morale ni « saviez-vous que » ni question rhétorique.
+- "titre" : 2 à 6 mots, sans point final. C'est une étiquette courte, reprise dans la notification quotidienne — surtout pas une phrase.
+- "accroche" : une seule phrase de 12 à 25 mots, sans point final. Elle part d'aujourd'hui et du concret — ce qu'on voit, ce qu'on traverse, ce qu'on ignore en passant — et annonce la surprise sans la déflorer.
+- "corps" : 300 à 450 mots, en 3 ou 4 paragraphes séparés par une ligne vide.
+
+COMMENT RACONTER
+
+Premier paragraphe : pars d'un geste ordinaire d'aujourd'hui — ce qu'on longe, ce qu'on traverse, ce devant quoi on passe sans le voir — puis installe l'étonnement.
+Interdit d'ouvrir par une situation géographique générique. « Au cœur du centre historique de X », « Située en Bretagne, la ville de X », « Dans le centre-ville de X » : ces formules sont bannies. On commence par quelqu'un qui fait quelque chose, ou par l'objet lui-même.
+Paragraphes du milieu : déroule l'histoire dans l'ordre, avec ses dates, ses noms, ses chiffres. Ce sont les détails précis qui font qu'on retient — une dimension, un coût, le nom de l'ingénieur, la durée d'un chantier, le nombre de pièces.
+Dernier paragraphe : ce qu'il en reste aujourd'hui, ou le détail qui frappe.
+
+Présent de narration, du premier au dernier mot, y compris pour les événements anciens : « les cloches sonnent », jamais « les cloches se mirent à sonner ». Pas de passé simple, pas d'imparfait narratif.
+
+Aucune morale, aucun « saviez-vous que », aucune question rhétorique, aucune adresse au lecteur.
+
+RÈGLES ABSOLUES
+
+- N'écris aucune date, aucun chiffre, aucun nom propre qui ne figure pas dans le dossier. Cela vaut pour l'accroche autant que pour le corps.
+- Recopie dans "citations" les phrases exactes du dossier qui établissent ton récit — caractère pour caractère, sans reformuler, sans couper un mot, sans corriger la ponctuation. Elles sont comparées automatiquement au dossier : une citation approximative fait rejeter tout le travail.
+- Il te faut au moins trois citations distinctes, couvrant les affirmations principales du récit.
+- Si le dossier ne permet pas d'écrire 300 mots sans rien inventer, renvoie trouve = false. C'est une réponse acceptable et attendue : mieux vaut rien qu'un récit brodé.
 
 Réponds uniquement par un objet json de cette forme :
 {
   "trouve": true,
-  "titre": "Les chiens du guet",
+  "titre": "L'usine sous la route",
+  "accroche": "Sur la route Saint-Malo–Dinard, on roule au-dessus de la plus grande centrale marémotrice du monde",
   "corps": "…",
-  "periode": "XIIe–XVIIIe siècle",
-  "citations": ["phrase exacte tirée du dossier", "autre phrase exacte"],
+  "periode": "1961–1966",
+  "citations": ["phrase exacte tirée du dossier", "autre phrase exacte", "troisième phrase exacte"],
   "raison": ""
 }
 
@@ -107,6 +129,7 @@ Si trouve vaut false, renseigne raison et laisse les autres champs vides.`;
 interface Redaction {
   trouve: boolean;
   titre: string;
+  accroche: string;
   corps: string;
   periode: string;
   citations: string[];
@@ -152,11 +175,14 @@ function dossier(docs: SourceDoc[]): string {
 }
 
 function redactionPrompt(city: string, docs: SourceDoc[], existingTitles: string[]): string {
+  // Sans cette consigne, le modèle revient au document le plus volumineux du
+  // dossier et enchaîne trois anecdotes sur le même monument : éviter un titre
+  // déjà pris ne suffit pas, il faut demander de changer de document.
   const dejaVues =
     existingTitles.length > 0
-      ? `\n\nAnecdotes déjà enregistrées pour cette ville — trouve un autre sujet :\n${existingTitles
+      ? `\n\nAnecdotes déjà enregistrées pour cette ville :\n${existingTitles
           .map((t) => `- ${t}`)
-          .join('\n')}`
+          .join('\n')}\n\nChoisis un sujet tiré d'un AUTRE document du dossier que ceux-là. Le dossier compte plusieurs articles : sers-t'en.`
       : '';
 
   return `DOSSIER DOCUMENTAIRE SUR ${city.toUpperCase()}
@@ -175,11 +201,12 @@ ${dossier(docs)}
 
 ANECDOTE À VÉRIFIER
 Titre : ${redaction.titre}
+Accroche : ${redaction.accroche}
 Période annoncée : ${redaction.periode}
 
 ${redaction.corps}
 
-Vérifie chaque affirmation contre le dossier et réponds en json.`;
+Vérifie chaque affirmation contre le dossier — l'accroche compte autant que le corps — et réponds en json.`;
 }
 
 // ------------------------------------------------------------- génération
@@ -201,7 +228,7 @@ async function generateOne(
     // Le dossier borne déjà le contenu ; un peu de liberté sert seulement à
     // ne pas ressortir toujours le même passage.
     temperature: 0.7,
-    maxTokens: 1500,
+    maxTokens: 3000,
   });
 
   if (!redaction?.trouve) {
@@ -209,15 +236,26 @@ async function generateOne(
   }
 
   const titre = String(redaction.titre ?? '').trim();
+  const accroche = String(redaction.accroche ?? '').trim();
   const corps = String(redaction.corps ?? '').trim();
 
-  if (!titre || corps.length < MIN_BODY_CHARS || corps.length > MAX_BODY_CHARS) {
-    return { ok: false, reason: `Texte hors format (${corps.length} caractères).` };
+  if (!titre) {
+    return { ok: false, reason: 'Titre manquant.' };
+  }
+  if (!accroche || accroche.length > MAX_ACCROCHE_CHARS) {
+    return { ok: false, reason: `Accroche absente ou trop longue (${accroche.length} caractères).` };
+  }
+  if (corps.length < MIN_BODY_CHARS || corps.length > MAX_BODY_CHARS) {
+    return {
+      ok: false,
+      reason: `Corps hors format : ${corps.length} caractères, attendu entre ${MIN_BODY_CHARS} et ${MAX_BODY_CHARS}.`,
+    };
   }
 
   const clean: Redaction = {
     ...redaction,
     titre,
+    accroche,
     corps,
     periode: String(redaction.periode ?? '').trim(),
   };
@@ -348,6 +386,7 @@ Deno.serve(async (req) => {
         city,
         city_place_id: cityPlaceId,
         title: redaction.titre,
+        hook: redaction.accroche,
         body: redaction.corps,
         period: redaction.periode || null,
         source: sources.map((s) => `${s.editeur} — ${s.titre}`).join(' ; '),
