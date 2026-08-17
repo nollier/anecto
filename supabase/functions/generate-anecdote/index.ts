@@ -28,7 +28,7 @@ import { chatJSON, DEEPSEEK_MODEL, DeepSeekError } from './deepseek.ts';
 import { fetchWikipediaDocs } from './wikipedia.ts';
 import { fetchPatrimoineDocs } from './patrimoine.ts';
 import type { SourceDoc } from './sources.ts';
-import { controler } from './verification.ts';
+import { controler, normalize } from './verification.ts';
 import { corsHeaders, fail, json } from './http.ts';
 
 const ADMIN_SECRET = Deno.env.get('ANECTO_ADMIN_SECRET');
@@ -143,6 +143,8 @@ const VERIFICATION_SYSTEM = `Tu es vérificateur de faits. On te donne un dossie
 La seule question qui compte : chaque affirmation de l'anecdote est-elle soutenue par le dossier ? Ce que tu crois savoir par ailleurs ne compte pas. Une affirmation absente du dossier est un problème, même si elle te paraît vraie.
 
 Vérifie en particulier les dates, les chiffres, les noms propres, et les liens de cause à effet — un texte peut n'utiliser que des éléments présents dans le dossier tout en affirmant entre eux un rapport que le dossier n'établit pas.
+
+Sois bref : trois problèmes au maximum, une phrase chacun, sans recopier de longs passages.
 
 Verdicts :
 - "confirme" : tout est soutenu par le dossier.
@@ -266,13 +268,28 @@ async function generateOne(
     return { ok: false, reason: controle.reason! };
   }
 
-  const verification = await chatJSON<Verification>({
-    apiKey,
-    system: VERIFICATION_SYSTEM,
-    user: verificationPrompt(city, clean, docs),
-    temperature: 0,
-    maxTokens: 800,
-  });
+  // 2500 et non 800 : le vérificateur cite les passages qu'il conteste, et un
+  // récit de 450 mots lui en donne beaucoup plus qu'un paragraphe. À 800, sa
+  // réponse était coupée en plein JSON — l'erreur remontait alors comme un
+  // « JSON invalide renvoyé par DeepSeek » qui ne disait rien de la cause.
+  let verification: Verification;
+  try {
+    verification = await chatJSON<Verification>({
+      apiKey,
+      system: VERIFICATION_SYSTEM,
+      user: verificationPrompt(city, clean, docs),
+      temperature: 0,
+      maxTokens: 2500,
+    });
+  } catch (err) {
+    // Une vérification ratée ne condamne que cette anecdote. Auparavant elle
+    // remontait jusqu'à l'appelant et emportait toute la ville : sur un lot de
+    // trois, une réponse malformée en faisait perdre trois.
+    return {
+      ok: false,
+      reason: `Vérification impossible : ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
 
   if (verification?.verdict === 'refute') {
     return {
@@ -364,7 +381,28 @@ Deno.serve(async (req) => {
 
     const { redaction, verification, citations } = result;
 
-    const sources = docs.map((doc) => ({
+    // Ne créditer que les documents qui portent réellement une citation
+    // vérifiée, du plus contributif au moins.
+    //
+    // Le dossier compte six ou huit articles, et l'anecdote n'en exploite
+    // presque jamais plus d'un. Créditer tout le dossier produisait une ligne
+    // « Wikipédia — Paris ; Wikipédia — Histoire de Paris ; … » illisible, et
+    // surtout un lien « Source » pointant vers l'article général de la ville —
+    // où le lecteur venu vérifier ne trouvait pas le fait annoncé. Une source
+    // qu'on ne peut pas vérifier ne vaut pas mieux que pas de source.
+    const contributions = docs
+      .map((doc) => {
+        const extrait = normalize(doc.extract);
+        return { doc, poids: citations.filter((c) => extrait.includes(normalize(c))).length };
+      })
+      .filter((c) => c.poids > 0)
+      .sort((a, b) => b.poids - a.poids);
+
+    // Filet : les citations ont été validées contre la concaténation du
+    // dossier, une seule pourrait théoriquement chevaucher deux documents.
+    const retenus = contributions.length > 0 ? contributions.map((c) => c.doc) : [docs[0]];
+
+    const sources = retenus.map((doc) => ({
       url: doc.url,
       titre: doc.title,
       editeur: doc.editeur,
