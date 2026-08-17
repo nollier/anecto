@@ -59,6 +59,20 @@ export interface Anecdote {
   validated_at: string | null;
 }
 
+/**
+ * Série et carnet, calculés à la volée depuis l'historique de lecture.
+ * Rien n'est stocké : ces chiffres se déduisent tous de `user_anecdote_history`.
+ */
+export interface Statistiques {
+  /** Jours consécutifs. Reste vivante si la dernière lecture date d'hier. */
+  serie: number;
+  record: number;
+  total_lues: number;
+  ville: string | null;
+  lues_ville: number;
+  total_ville: number;
+}
+
 export interface HistoryEntry {
   id: string;
   user_id: string;

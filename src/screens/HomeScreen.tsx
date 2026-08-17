@@ -10,13 +10,12 @@ import {
   Alert,
   Linking,
   RefreshControl,
-  KeyboardAvoidingView,
   Keyboard,
   Platform,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
-import { Anecdote, FeedbackType } from '../types';
+import { Anecdote, FeedbackType, Statistiques } from '../types';
 
 /** Le champ libre sert aux corrections comme aux propositions. */
 type SaisieLibre = 'incomplete' | 'propose' | null;
@@ -30,6 +29,7 @@ export default function HomeScreen() {
   const [feedbackGiven, setFeedbackGiven] = useState<FeedbackType | null>(null);
   const [saisie, setSaisie] = useState<SaisieLibre>(null);
   const [texteLibre, setTexteLibre] = useState('');
+  const [stats, setStats] = useState<Statistiques | null>(null);
   const scrollRef = useRef<ScrollView>(null);
 
   // Le champ de saisie est en bas d'une anecdote de 300 à 450 mots : à
@@ -81,6 +81,11 @@ export default function HomeScreen() {
     setAnecdote(dujour);
     setSaisie(null);
     setTexteLibre('');
+
+    // Après l'appel ci-dessus, jamais avant : c'est lui qui inscrit la journée
+    // dans l'historique, donc qui fait passer la série de 2 à 3.
+    const { data: mesures } = await supabase.rpc('mes_statistiques');
+    setStats((mesures as Statistiques[] | null)?.[0] ?? null);
 
     // L'avis vit en base, pas dans l'état du composant : relancer l'app ne
     // doit pas permettre de voter une seconde fois.
@@ -178,92 +183,110 @@ export default function HomeScreen() {
       : "Qu'est-ce qui manque ou est incorrect ?";
 
   return (
-    <KeyboardAvoidingView
+    <ScrollView
+      ref={scrollRef}
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
+      // C'est UIKit qui réserve la place du clavier, pas nous.
+      //
+      // Un KeyboardAvoidingView calcule sa marge depuis le bas de sa propre
+      // zone : dans un onglet, celle-ci s'arrête au-dessus de la barre de
+      // navigation, et la marge obtenue est trop courte d'exactement la
+      // hauteur de cette barre — le champ restait sous le clavier. Cette
+      // propriété laisse le système ajuster l'encart de défilement, sans
+      // rien mesurer côté React.
+      automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+      // Referme le clavier au glissement : sur un texte long, on veut souvent
+      // relire l'anecdote pendant qu'on rédige sa correction.
+      keyboardDismissMode="interactive"
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadTodayAnecdote(); }} />
+      }
     >
-      <ScrollView
-        ref={scrollRef}
-        style={styles.container}
-        contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled"
-        // Referme le clavier au glissement : sur un texte long, on veut souvent
-        // relire l'anecdote pendant qu'on rédige sa correction.
-        keyboardDismissMode="interactive"
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadTodayAnecdote(); }} />
-        }
-      >
-        <Text style={styles.eyebrow}>
-          📖 Anecdote du jour · {anecdote.city}
-          {anecdote.period ? ` · ${anecdote.period}` : ''}
-        </Text>
-        {/* L'accroche porte le titre à l'écran. `title` reste l'étiquette courte
-            de la notification — les anecdotes générées avant l'accroche n'en ont
-            pas, d'où le repli. */}
-        <Text style={styles.title}>{anecdote.hook || anecdote.title}</Text>
-        <Text style={styles.body}>{anecdote.body}</Text>
+      {/* La série se lit avant l'anecdote : c'est ce qu'on vient vérifier en
+          ouvrant l'app, plus encore que le texte du jour. Discrète malgré
+          tout — Anecto est un rituel de lecture, pas un tableau de bord. */}
+      {!!stats && stats.serie > 0 && (
+        <View style={styles.serieRow}>
+          <Text style={styles.serie}>
+            🔥 {stats.serie} jour{stats.serie > 1 ? 's' : ''} d'affilée
+          </Text>
+          {stats.record > stats.serie && (
+            <Text style={styles.record}>record {stats.record}</Text>
+          )}
+        </View>
+      )}
 
-        {/* La source cliquable est ce qui rend « vérifiée » contrôlable par le
-            lecteur, au lieu d'être une promesse à croire sur parole. */}
-        {anecdote.source_url ? (
-          <TouchableOpacity onPress={ouvrirSource} accessibilityRole="link">
-            <Text style={styles.sourceLink}>Source : {anecdote.source} ↗</Text>
+      <Text style={styles.eyebrow}>
+        📖 Anecdote du jour · {anecdote.city}
+        {anecdote.period ? ` · ${anecdote.period}` : ''}
+      </Text>
+      {/* L'accroche porte le titre à l'écran. `title` reste l'étiquette courte
+          de la notification — les anecdotes générées avant l'accroche n'en ont
+          pas, d'où le repli. */}
+      <Text style={styles.title}>{anecdote.hook || anecdote.title}</Text>
+      <Text style={styles.body}>{anecdote.body}</Text>
+
+      {/* La source cliquable est ce qui rend « vérifiée » contrôlable par le
+          lecteur, au lieu d'être une promesse à croire sur parole. */}
+      {anecdote.source_url ? (
+        <TouchableOpacity onPress={ouvrirSource} accessibilityRole="link">
+          <Text style={styles.sourceLink}>Source : {anecdote.source} ↗</Text>
+        </TouchableOpacity>
+      ) : (
+        <Text style={styles.source}>Source : {anecdote.source}</Text>
+      )}
+
+      {!feedbackGiven && !saisie && (
+        <View style={styles.feedbackBlock}>
+          <Text style={styles.feedbackQuestion}>Comment trouvez-vous cette anecdote ?</Text>
+          <View style={styles.feedbackRow}>
+            <TouchableOpacity style={styles.feedbackBtn} onPress={() => submitFeedback('adore')}>
+              <Text style={styles.feedbackBtnText}>😍 J'adore</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.feedbackBtn} onPress={() => setSaisie('incomplete')}>
+              <Text style={styles.feedbackBtnText}>✏️ Incomplète</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.feedbackBtn} onPress={() => setSaisie('propose')}>
+              <Text style={styles.feedbackBtnText}>💡 Proposer</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {saisie && (
+        <View style={styles.feedbackBlock}>
+          <Text style={styles.feedbackQuestion}>{question}</Text>
+          <TextInput
+            style={styles.input}
+            multiline
+            // Ouvre le clavier dès le choix du bouton : une frappe de moins,
+            // et c'est ce qui déclenche la remontée du champ.
+            autoFocus
+            value={texteLibre}
+            onChangeText={setTexteLibre}
+            placeholder={
+              saisie === 'propose'
+                ? 'Raconte-la, avec sa source si tu la connais…'
+                : 'Décris la correction…'
+            }
+          />
+          <TouchableOpacity
+            style={[styles.submitBtn, !texteLibre.trim() && styles.submitBtnDisabled]}
+            disabled={!texteLibre.trim()}
+            onPress={() => submitFeedback(saisie, texteLibre)}
+          >
+            <Text style={styles.submitBtnText}>Envoyer</Text>
           </TouchableOpacity>
-        ) : (
-          <Text style={styles.source}>Source : {anecdote.source}</Text>
-        )}
+          <TouchableOpacity onPress={() => setSaisie(null)}>
+            <Text style={styles.cancel}>Annuler</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
-        {!feedbackGiven && !saisie && (
-          <View style={styles.feedbackBlock}>
-            <Text style={styles.feedbackQuestion}>Comment trouvez-vous cette anecdote ?</Text>
-            <View style={styles.feedbackRow}>
-              <TouchableOpacity style={styles.feedbackBtn} onPress={() => submitFeedback('adore')}>
-                <Text style={styles.feedbackBtnText}>😍 J'adore</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.feedbackBtn} onPress={() => setSaisie('incomplete')}>
-                <Text style={styles.feedbackBtnText}>✏️ Incomplète</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.feedbackBtn} onPress={() => setSaisie('propose')}>
-                <Text style={styles.feedbackBtnText}>💡 Proposer</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-
-        {saisie && (
-          <View style={styles.feedbackBlock}>
-            <Text style={styles.feedbackQuestion}>{question}</Text>
-            <TextInput
-              style={styles.input}
-              multiline
-              // Ouvre le clavier dès le choix du bouton : une frappe de moins,
-              // et c'est ce qui déclenche la remontée du champ.
-              autoFocus
-              value={texteLibre}
-              onChangeText={setTexteLibre}
-              placeholder={
-                saisie === 'propose'
-                  ? 'Raconte-la, avec sa source si tu la connais…'
-                  : 'Décris la correction…'
-              }
-            />
-            <TouchableOpacity
-              style={[styles.submitBtn, !texteLibre.trim() && styles.submitBtnDisabled]}
-              disabled={!texteLibre.trim()}
-              onPress={() => submitFeedback(saisie, texteLibre)}
-            >
-              <Text style={styles.submitBtnText}>Envoyer</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setSaisie(null)}>
-              <Text style={styles.cancel}>Annuler</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {feedbackGiven && <Text style={styles.thanksText}>Merci pour ton retour 🙌</Text>}
-      </ScrollView>
-    </KeyboardAvoidingView>
+      {feedbackGiven && <Text style={styles.thanksText}>Merci pour ton retour 🙌</Text>}
+    </ScrollView>
   );
 }
 
@@ -271,6 +294,9 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
   content: { padding: 20, paddingTop: 60, paddingBottom: 40 },
   center: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
+  serieRow: { flexDirection: 'row', alignItems: 'baseline', gap: 10, marginBottom: 14 },
+  serie: { fontSize: 14, fontWeight: '700', color: '#b3402f' },
+  record: { fontSize: 12, color: '#aaa' },
   eyebrow: { fontSize: 13, color: '#888', marginBottom: 8, fontWeight: '600' },
   // Une accroche fait une à deux lignes de plus qu'un titre de quatre mots :
   // 24 points la faisaient déborder sur quatre lignes.

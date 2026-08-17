@@ -37,7 +37,7 @@ const DEEPSEEK_API_KEY = Deno.env.get('DEEPSEEK_API_KEY');
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-const MAX_COUNT = 5;
+const MAX_COUNT = 10;
 
 // Un récit de 300 à 450 mots, pas un paragraphe. Le plancher est là pour
 // refuser un texte court : le modèle, faute de matière, a tendance à rendre
@@ -48,7 +48,7 @@ const MAX_ACCROCHE_CHARS = 180;
 
 // Enveloppes de dossier, par origine : sans réservation, Wikipédia remplirait
 // tout et les notices Mérimée n'atteindraient jamais le modèle.
-const MAX_CHARS_WIKIPEDIA = 60000;
+const MAX_CHARS_WIKIPEDIA = 70000;
 const MAX_CHARS_MERIMEE = 12000;
 
 /** Tronque une liste de documents à un budget global de caractères. */
@@ -68,9 +68,9 @@ function budget(docs: SourceDoc[], max: number): SourceDoc[] {
  * Le dossier soumis au modèle. Les deux sources sont interrogées en parallèle
  * et indépendamment : si l'une échoue, l'autre fait le travail.
  */
-async function buildDossier(city: string): Promise<SourceDoc[]> {
+async function buildDossier(city: string, exclure: string[]): Promise<SourceDoc[]> {
   const [wiki, merimee] = await Promise.allSettled([
-    fetchWikipediaDocs(city),
+    fetchWikipediaDocs(city, exclure),
     fetchPatrimoineDocs(city),
   ]);
 
@@ -332,9 +332,32 @@ Deno.serve(async (req) => {
     return fail('Paramètre `city` manquant.');
   }
 
+  // L'existant est lu AVANT le dossier : ce sont les articles déjà exploités
+  // qui déterminent lesquels on va chercher. C'est ce qui fait tourner le
+  // corpus d'une génération à l'autre, et rend atteignables trente anecdotes
+  // par ville — sans quoi le modèle revient au même monument indéfiniment.
+  const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+
+  const existingQuery = supabase.from('anecdotes').select('title, sources').limit(500);
+  const { data: existing } = cityPlaceId
+    ? await existingQuery.eq('city_place_id', cityPlaceId)
+    : await existingQuery.eq('city', city);
+
+  const titles: string[] = (existing ?? []).map((row) => row.title);
+
+  const articlesExploites = [
+    ...new Set(
+      (existing ?? []).flatMap((row) =>
+        ((row.sources ?? []) as Array<{ titre?: string }>)
+          .map((s) => s.titre)
+          .filter((t): t is string => typeof t === 'string')
+      )
+    ),
+  ];
+
   let docs: SourceDoc[];
   try {
-    docs = await buildDossier(city);
+    docs = await buildDossier(city, articlesExploites);
   } catch (err) {
     console.error('Dossier', err);
     return json(
@@ -348,19 +371,12 @@ Deno.serve(async (req) => {
   if (docs.length === 0) {
     return json({
       created: 0,
-      skipped: [`Aucune source exploitable pour « ${city} » (Wikipédia et Mérimée muets).`],
+      skipped: [
+        `Aucune source neuve pour « ${city} » : les ${articlesExploites.length} articles disponibles ont tous été exploités.`,
+      ],
       anecdotes: [],
     });
   }
-
-  const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-
-  const existingQuery = supabase.from('anecdotes').select('title').limit(60);
-  const { data: existing } = cityPlaceId
-    ? await existingQuery.eq('city_place_id', cityPlaceId)
-    : await existingQuery.eq('city', city);
-
-  const titles: string[] = (existing ?? []).map((row) => row.title);
   const created: unknown[] = [];
   const skipped: string[] = [];
 
