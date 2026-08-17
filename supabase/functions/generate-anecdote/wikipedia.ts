@@ -14,7 +14,11 @@ const API = 'https://fr.wikipedia.org/w/api.php';
 // Wikimedia demande un User-Agent identifiable et répond 403 sinon.
 const USER_AGENT = 'Anecto/1.0 (https://github.com/nollier/anecto)';
 
-const MAX_CHARS_PER_DOC = 8000;
+// Un article de monument fait couramment 30 000 à 40 000 caractères, et c'est
+// dans le détail — dimensions, coûts, noms d'ingénieurs, durée des chantiers —
+// que se trouve la matière d'un récit. Tronquer à 8 000 revenait à ne garder
+// que l'introduction.
+const MAX_CHARS_PER_DOC = 16000;
 const MAX_LINKED_ARTICLES = 6;
 const TIMEOUT_MS = 15000;
 
@@ -86,37 +90,49 @@ async function findLinkedHeritage(cityTitle: string): Promise<string[]> {
   return retenus.slice(0, MAX_LINKED_ARTICLES);
 }
 
-/** Extraits en texte brut. Les pages absentes sont ignorées. */
-async function fetchExtracts(titles: string[]): Promise<SourceDoc[]> {
-  if (titles.length === 0) return [];
-
+/**
+ * Extrait en texte brut d'un seul article. Page absente ou trop maigre : null.
+ *
+ * Une requête par titre, et non une requête groupée. L'API TextExtracts refuse
+ * de renvoyer plus d'un article *complet* à la fois, quelle que soit la valeur
+ * d'`exlimit` : elle abaisse la limite à 1 et se contente de le signaler dans
+ * un champ `warnings` que personne ne lit —
+ *
+ *   "exlimit" was too large for a whole article extracts request, lowered to 1.
+ *
+ * Groupées, huit demandes sur neuf revenaient donc vides, sans la moindre
+ * erreur : le dossier se réduisait au premier article que MediaWiki daignait
+ * traiter, qui n'était même pas celui de la ville.
+ */
+async function fetchExtract(title: string): Promise<SourceDoc | null> {
   const data = await call({
     action: 'query',
     prop: 'extracts|info',
     explaintext: '1',
     exsectionformat: 'plain',
-    // Sans exlimit, MediaWiki ne renvoie l'extrait que du premier titre.
-    exlimit: 'max',
     inprop: 'url',
     redirects: '1',
-    titles: titles.join('|'),
+    titles: title,
   });
 
   // deno-lint-ignore no-explicit-any
   const pages: Record<string, any> = data?.query?.pages ?? {};
+  const page = Object.values(pages)[0];
 
-  return Object.values(pages)
-    .filter((page) => !page.missing && typeof page.extract === 'string')
-    .map((page) => ({
-      origine: 'wikipedia' as const,
-      title: page.title as string,
-      url:
-        (page.fullurl as string) ??
-        `https://fr.wikipedia.org/wiki/${encodeURIComponent(page.title)}`,
-      editeur: 'Wikipédia',
-      extract: (page.extract as string).slice(0, MAX_CHARS_PER_DOC),
-    }))
-    .filter((doc) => doc.extract.trim().length > 400);
+  if (!page || page.missing || typeof page.extract !== 'string') return null;
+
+  const extract = (page.extract as string).slice(0, MAX_CHARS_PER_DOC);
+  if (extract.trim().length <= 400) return null;
+
+  return {
+    origine: 'wikipedia',
+    title: page.title as string,
+    url:
+      (page.fullurl as string) ??
+      `https://fr.wikipedia.org/wiki/${encodeURIComponent(page.title)}`,
+    editeur: 'Wikipédia',
+    extract,
+  };
 }
 
 export async function fetchWikipediaDocs(city: string): Promise<SourceDoc[]> {
@@ -132,13 +148,27 @@ export async function fetchWikipediaDocs(city: string): Promise<SourceDoc[]> {
   }
 
   const titres = [
-    cityTitle,
-    `Histoire de ${cityTitle}`,
-    `Liste des monuments historiques de ${cityTitle}`,
-    ...linked,
+    ...new Set([
+      cityTitle,
+      `Histoire de ${cityTitle}`,
+      `Liste des monuments historiques de ${cityTitle}`,
+      ...linked,
+    ]),
   ];
 
-  const docs = await fetchExtracts([...new Set(titres)]);
+  // En parallèle : neuf allers-retours en séquence tiendraient mal dans le
+  // temps d'exécution de la fonction. Un titre inexistant — « Histoire de X »
+  // n'existe pas pour toutes les communes — ne doit rien interrompre.
+  const resultats = await Promise.allSettled(titres.map(fetchExtract));
+
+  const docs: SourceDoc[] = [];
+  resultats.forEach((resultat, i) => {
+    if (resultat.status === 'rejected') {
+      console.error(`Wikipédia « ${titres[i]} »`, resultat.reason);
+    } else if (resultat.value) {
+      docs.push(resultat.value);
+    }
+  });
 
   // L'article de la ville en tête : c'est le plus fiable et le mieux relu.
   docs.sort((a, b) => Number(b.title === cityTitle) - Number(a.title === cityTitle));

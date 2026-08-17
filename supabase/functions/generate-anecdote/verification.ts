@@ -5,7 +5,10 @@
 // Ce fichier n'utilise aucune API Deno, exprès : les tests tournent aussi bien
 // sous `deno test` que sous `node --experimental-strip-types --test`.
 
-export const MIN_CITATIONS = 2;
+// Trois plutôt que deux depuis que le corps fait 300 à 450 mots : un récit
+// long avance beaucoup plus d'affirmations qu'un paragraphe, et deux citations
+// n'en couvriraient plus qu'une petite part.
+export const MIN_CITATIONS = 3;
 export const MIN_CITATION_CHARS = 30;
 
 export interface Controle {
@@ -16,6 +19,8 @@ export interface Controle {
 
 export interface ARelire {
   corps: string;
+  /** L'accroche affichée en titre. Elle avance des faits, donc elle se contrôle. */
+  accroche?: string;
   citations: unknown;
 }
 
@@ -58,7 +63,10 @@ export function controler(redaction: ARelire, sourceText: string): Controle {
 
   // Un millésime absent de la source est le symptôme le plus fréquent de
   // l'hallucination : le récit est plausible, la date est fabriquée.
-  const millesimes = redaction.corps.match(/\b(?:1\d{3}|20\d{2})\b/g) ?? [];
+  // L'accroche est contrôlée avec le corps — c'est la phrase la plus lue de
+  // l'écran, une date inventée y ferait le plus de dégâts.
+  const aControler = `${redaction.accroche ?? ''} ${redaction.corps}`;
+  const millesimes = aControler.match(/\b(?:1\d{3}|20\d{2})\b/g) ?? [];
   const inconnus = [...new Set(millesimes)].filter((annee) => !source.includes(annee));
 
   if (inconnus.length > 0) {

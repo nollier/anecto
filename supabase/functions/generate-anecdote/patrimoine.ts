@@ -5,11 +5,11 @@
 //
 // Gratuite, sans clé. L'API expose une recherche de type Elasticsearch.
 //
-// ⚠️ Contrat d'API non vérifié en conditions réelles depuis cet environnement
-// (accès réseau restreint). Le code est donc défensif : toute anomalie
-// renvoie un dossier vide et laisse Wikipédia faire le travail, plutôt que de
-// faire échouer la génération. La réponse de la fonction indique quelles
-// sources ont réellement contribué — c'est là qu'on verra si Mérimée répond.
+// ⚠️ ROUTE PÉRIMÉE — vérifié le 17/08/2026 : `/search/merimee/_msearch` répond
+// 404 « Cannot POST », et la racine de l'API annonce désormais « POPv2 API ».
+// Les routes de la v2 restent à découvrir. En attendant, cette fonction rend
+// systématiquement un dossier vide et Wikipédia fait tout le travail — ce qui
+// est le comportement défensif prévu, mais ne remplace pas le correctif.
 
 import { SourceDoc, toPlainText } from './sources.ts';
 

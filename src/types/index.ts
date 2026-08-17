@@ -41,7 +41,10 @@ export interface Anecdote {
   id: string;
   city: string;
   city_place_id: string | null;
+  /** Étiquette courte : notification quotidienne et file de relecture. */
   title: string;
+  /** Phrase d'accroche affichée en titre. Nul sur les anecdotes d'avant. */
+  hook: string | null;
   body: string;
   period: string | null;
   source: string;
