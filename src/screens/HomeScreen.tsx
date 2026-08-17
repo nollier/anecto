@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
-import { Anecdote, FeedbackType } from '../types';
+import { Anecdote, FeedbackType, Statistiques } from '../types';
 
 /** Le champ libre sert aux corrections comme aux propositions. */
 type SaisieLibre = 'incomplete' | 'propose' | null;
@@ -29,6 +29,7 @@ export default function HomeScreen() {
   const [feedbackGiven, setFeedbackGiven] = useState<FeedbackType | null>(null);
   const [saisie, setSaisie] = useState<SaisieLibre>(null);
   const [texteLibre, setTexteLibre] = useState('');
+  const [stats, setStats] = useState<Statistiques | null>(null);
   const scrollRef = useRef<ScrollView>(null);
 
   // Le champ de saisie est en bas d'une anecdote de 300 à 450 mots : à
@@ -80,6 +81,11 @@ export default function HomeScreen() {
     setAnecdote(dujour);
     setSaisie(null);
     setTexteLibre('');
+
+    // Après l'appel ci-dessus, jamais avant : c'est lui qui inscrit la journée
+    // dans l'historique, donc qui fait passer la série de 2 à 3.
+    const { data: mesures } = await supabase.rpc('mes_statistiques');
+    setStats((mesures as Statistiques[] | null)?.[0] ?? null);
 
     // L'avis vit en base, pas dans l'état du composant : relancer l'app ne
     // doit pas permettre de voter une seconde fois.
@@ -198,6 +204,20 @@ export default function HomeScreen() {
         <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadTodayAnecdote(); }} />
       }
     >
+      {/* La série se lit avant l'anecdote : c'est ce qu'on vient vérifier en
+          ouvrant l'app, plus encore que le texte du jour. Discrète malgré
+          tout — Anecto est un rituel de lecture, pas un tableau de bord. */}
+      {!!stats && stats.serie > 0 && (
+        <View style={styles.serieRow}>
+          <Text style={styles.serie}>
+            🔥 {stats.serie} jour{stats.serie > 1 ? 's' : ''} d'affilée
+          </Text>
+          {stats.record > stats.serie && (
+            <Text style={styles.record}>record {stats.record}</Text>
+          )}
+        </View>
+      )}
+
       <Text style={styles.eyebrow}>
         📖 Anecdote du jour · {anecdote.city}
         {anecdote.period ? ` · ${anecdote.period}` : ''}
@@ -274,6 +294,9 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
   content: { padding: 20, paddingTop: 60, paddingBottom: 40 },
   center: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
+  serieRow: { flexDirection: 'row', alignItems: 'baseline', gap: 10, marginBottom: 14 },
+  serie: { fontSize: 14, fontWeight: '700', color: '#b3402f' },
+  record: { fontSize: 12, color: '#aaa' },
   eyebrow: { fontSize: 13, color: '#888', marginBottom: 8, fontWeight: '600' },
   // Une accroche fait une à deux lignes de plus qu'un titre de quatre mots :
   // 24 points la faisaient déborder sur quatre lignes.
