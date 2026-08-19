@@ -33,6 +33,12 @@
           "color": "#222222"
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "94da1ca3-603f-41f0-bb60-232e22221f04"
+      }
+    },
+    "owner": "nicoollier"
   }
 }
