@@ -33,11 +33,6 @@
           "color": "#222222"
         }
       ]
-    ],
-    "extra": {
-      "eas": {
-        "projectId": "A_RENSEIGNER_APRES_EAS_INIT"
-      }
-    }
+    ]
   }
 }
