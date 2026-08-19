@@ -2,6 +2,7 @@ import 'react-native-url-polyfill/auto';
 import React, { useEffect, useRef, useState } from 'react';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
 import { View, ActivityIndicator } from 'react-native';
 import * as Notifications from 'expo-notifications';
@@ -12,10 +13,40 @@ import { syncPushToken } from './src/lib/notifications';
 import HomeScreen from './src/screens/HomeScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import HistoryScreen from './src/screens/HistoryScreen';
+import AnecdoteScreen from './src/screens/AnecdoteScreen';
 import AuthScreen from './src/screens/AuthScreen';
 
 const Tab = createBottomTabNavigator();
+const PileHistorique = createNativeStackNavigator();
 const navigationRef = createNavigationContainerRef();
+
+/**
+ * L'onglet Historique est une pile, pas un écran seul : une anecdote se relit
+ * en entier, et un texte de 400 mots demande son propre écran plutôt qu'un
+ * dépliement dans la liste. La pile apporte aussi le retour par balayage.
+ */
+function OngletHistorique() {
+  return (
+    <PileHistorique.Navigator>
+      <PileHistorique.Screen
+        name="Liste"
+        component={HistoryScreen}
+        options={{ headerShown: false }}
+      />
+      <PileHistorique.Screen
+        name="Anecdote"
+        component={AnecdoteScreen}
+        options={{
+          title: '',
+          headerBackTitle: 'Historique',
+          headerShadowVisible: false,
+          headerStyle: { backgroundColor: '#fff' },
+          headerTintColor: '#1a1a1a',
+        }}
+      />
+    </PileHistorique.Navigator>
+  );
+}
 
 const ONGLET_DU_JOUR = "Aujourd'hui";
 
@@ -86,7 +117,7 @@ export default function App() {
       <StatusBar style="dark" />
       <Tab.Navigator screenOptions={{ headerShown: false }}>
         <Tab.Screen name={ONGLET_DU_JOUR} component={HomeScreen} />
-        <Tab.Screen name="Historique" component={HistoryScreen} />
+        <Tab.Screen name="Historique" component={OngletHistorique} />
         <Tab.Screen name="Réglages" component={SettingsScreen} />
       </Tab.Navigator>
     </NavigationContainer>
