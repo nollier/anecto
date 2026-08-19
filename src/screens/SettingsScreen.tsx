@@ -1,10 +1,20 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform, Alert, ScrollView } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Platform,
+  Alert,
+  ScrollView,
+  Linking,
+} from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase } from '../lib/supabase';
 import { registerForPushNotificationsAsync } from '../lib/notifications';
 import { deviceTimezone } from '../lib/places';
 import CityPicker from '../components/CityPicker';
+import { POLITIQUE_CONFIDENTIALITE } from '../lib/legal';
 import { CityDetails } from '../types';
 
 export default function SettingsScreen() {
@@ -184,6 +194,15 @@ export default function SettingsScreen() {
           {suppression ? 'Suppression…' : 'Supprimer mon compte'}
         </Text>
       </TouchableOpacity>
+
+      {/* Google Play exige ce lien dans l'application, et pas seulement dans
+          la fiche du magasin, dès lors qu'on collecte une adresse e-mail. */}
+      <TouchableOpacity
+        onPress={() => Linking.openURL(POLITIQUE_CONFIDENTIALITE)}
+        accessibilityRole="link"
+      >
+        <Text style={styles.lienLegal}>Politique de confidentialité ↗</Text>
+      </TouchableOpacity>
     </ScrollView>
   );
 }
@@ -206,4 +225,5 @@ const styles = StyleSheet.create({
   },
   secondaryBtnText: { fontSize: 15, fontWeight: '600', color: '#1a1a1a' },
   dangerText: { textAlign: 'center', color: '#b3402f', fontSize: 14, marginTop: 20 },
+  lienLegal: { textAlign: 'center', color: '#888', fontSize: 13, marginTop: 28 },
 });
