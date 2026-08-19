@@ -1,6 +1,14 @@
 import React, { useCallback, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, ActivityIndicator, RefreshControl } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import {
+  View,
+  Text,
+  FlatList,
+  StyleSheet,
+  ActivityIndicator,
+  RefreshControl,
+  TouchableOpacity,
+} from 'react-native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { Anecdote, HistoryEntry, Statistiques } from '../types';
 
@@ -14,6 +22,7 @@ interface HistoryRow {
 }
 
 export default function HistoryScreen() {
+  const navigation = useNavigation<any>();
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [stats, setStats] = useState<Statistiques | null>(null);
   const [loading, setLoading] = useState(true);
@@ -105,7 +114,19 @@ export default function HistoryScreen() {
         <Text style={styles.emptyText}>Pas encore d'anecdote lue. Reviens demain !</Text>
       }
       renderItem={({ item }) => (
-        <View style={styles.card}>
+        <TouchableOpacity
+          style={styles.card}
+          accessibilityRole="button"
+          // Une anecdote dont le texte a disparu de la base ne s'ouvre pas :
+          // la carte reste alors inerte plutôt que d'afficher un écran vide.
+          disabled={!item.anecdote}
+          onPress={() =>
+            navigation.navigate('Anecdote', {
+              anecdote: item.anecdote,
+              luLe: item.sent_at,
+            })
+          }
+        >
           <Text style={styles.date}>
             {new Date(item.sent_at).toLocaleDateString('fr-FR', {
               day: 'numeric',
@@ -113,12 +134,15 @@ export default function HistoryScreen() {
               year: 'numeric',
             })}
           </Text>
-          <Text style={styles.title}>{item.anecdote?.title}</Text>
+          <View style={styles.ligne}>
+            <Text style={styles.title}>{item.anecdote?.title}</Text>
+            {!!item.anecdote && <Text style={styles.chevron}>›</Text>}
+          </View>
           <Text style={styles.city}>
             {item.anecdote?.city}
             {item.anecdote?.period ? ` · ${item.anecdote.period}` : ''}
           </Text>
-        </View>
+        </TouchableOpacity>
       )}
     />
   );
@@ -136,6 +160,8 @@ const styles = StyleSheet.create({
   carnetDetail: { fontSize: 13, color: '#888', marginTop: 10 },
   card: { paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#eee' },
   date: { fontSize: 12, color: '#999', marginBottom: 4 },
-  title: { fontSize: 16, fontWeight: '600', color: '#1a1a1a' },
+  ligne: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  title: { flex: 1, fontSize: 16, fontWeight: '600', color: '#1a1a1a' },
+  chevron: { fontSize: 22, color: '#c4c4c4', lineHeight: 22 },
   city: { fontSize: 13, color: '#888', marginTop: 2 },
 });
