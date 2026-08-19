@@ -86,26 +86,20 @@ export default function HistoryScreen() {
         />
       }
       ListHeaderComponent={
-        stats && stats.ville && stats.total_ville > 0 ? (
+        // Seule la série est affichée. Annoncer « 12 des 30 anecdotes »
+        // révélait la taille du stock, et transformait une découverte
+        // quotidienne en compte à rebours vers la fin.
+        stats && stats.record > 0 ? (
           <View style={styles.carnet}>
             <Text style={styles.carnetTitre}>
-              {stats.lues_ville} des {stats.total_ville} anecdotes de {stats.ville}
-            </Text>
-            {/* La barre est le vrai message : un texte dit un chiffre, une
-                barre montre ce qui reste — c'est ce qui donne envie d'y
-                revenir. */}
-            <View style={styles.jauge}>
-              <View
-                style={[
-                  styles.jaugeRemplie,
-                  { width: `${Math.min(100, (stats.lues_ville / stats.total_ville) * 100)}%` },
-                ]}
-              />
-            </View>
-            <Text style={styles.carnetDetail}>
               {stats.serie > 0
-                ? `🔥 ${stats.serie} jour${stats.serie > 1 ? 's' : ''} d'affilée · record ${stats.record}`
-                : `Série interrompue · record ${stats.record}`}
+                ? `🔥 ${stats.serie} jour${stats.serie > 1 ? 's' : ''} d'affilée`
+                : 'Série interrompue'}
+            </Text>
+            <Text style={styles.carnetDetail}>
+              {stats.record > stats.serie
+                ? `Ton record : ${stats.record} jour${stats.record > 1 ? 's' : ''}`
+                : "C'est ton record."}
             </Text>
           </View>
         ) : null
@@ -154,10 +148,8 @@ const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyText: { textAlign: 'center', color: '#666', marginTop: 40 },
   carnet: { marginBottom: 24 },
-  carnetTitre: { fontSize: 17, fontWeight: '700', color: '#1a1a1a', marginBottom: 10 },
-  jauge: { height: 8, borderRadius: 4, backgroundColor: '#eee', overflow: 'hidden' },
-  jaugeRemplie: { height: 8, borderRadius: 4, backgroundColor: '#b3402f' },
-  carnetDetail: { fontSize: 13, color: '#888', marginTop: 10 },
+  carnetTitre: { fontSize: 17, fontWeight: '700', color: '#b3402f' },
+  carnetDetail: { fontSize: 13, color: '#888', marginTop: 4 },
   card: { paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#eee' },
   date: { fontSize: 12, color: '#999', marginBottom: 4 },
   ligne: { flexDirection: 'row', alignItems: 'center', gap: 10 },
