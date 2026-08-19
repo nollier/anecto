@@ -1,0 +1,279 @@
+<title>Confidentialité Anecto</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Public+Sans:wght@400;500;700&display=swap">
+
+<style>
+  :root {
+    --papier: #ffffff;
+    --encre: #161514;
+    --brique: #a8402f;
+    --grave: #6d635e;
+    --filet: #e6e1db;
+    --surface: #faf8f6;
+    --mesure: 34rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --papier: #131211;
+      --encre: #ece8e3;
+      --brique: #e08268;
+      --grave: #a09690;
+      --filet: #2c2926;
+      --surface: #1b1917;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --papier: #131211;
+    --encre: #ece8e3;
+    --brique: #e08268;
+    --grave: #a09690;
+    --filet: #2c2926;
+    --surface: #1b1917;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--papier);
+    color: var(--encre);
+    font-family: 'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 16px;
+    line-height: 1.65;
+    margin: 0;
+    padding: clamp(2rem, 6vw, 5rem) 1.25rem 6rem;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page { max-width: var(--mesure); margin: 0 auto; display: flex; flex-direction: column; gap: 3rem; }
+
+  .eyebrow {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--brique);
+    margin: 0;
+  }
+
+  header { display: flex; flex-direction: column; gap: 0.75rem; }
+
+  h1 {
+    font-family: 'Instrument Serif', Georgia, serif;
+    font-weight: 400;
+    font-size: clamp(2.5rem, 8vw, 3.75rem);
+    line-height: 1.02;
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .chapo { color: var(--grave); margin: 0; font-size: 1.0625rem; }
+
+  .daté {
+    font-size: 0.8125rem;
+    color: var(--grave);
+    font-variant-numeric: tabular-nums;
+    margin: 0;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--filet);
+  }
+
+  .essentiel {
+    background: var(--surface);
+    border-left: 3px solid var(--brique);
+    padding: 1.5rem 1.5rem 1.5rem 1.375rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .essentiel h2 { font-size: 0.6875rem; letter-spacing: 0.14em; text-transform: uppercase; margin: 0; color: var(--brique); font-weight: 700; }
+  .essentiel ul { margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.5rem; }
+  .essentiel li { color: var(--encre); }
+
+  section { display: flex; flex-direction: column; gap: 1rem; }
+
+  h2.titre {
+    font-family: 'Instrument Serif', Georgia, serif;
+    font-weight: 400;
+    font-size: 1.75rem;
+    line-height: 1.15;
+    margin: 0;
+    display: flex;
+    gap: 0.75rem;
+    align-items: baseline;
+    text-wrap: balance;
+  }
+  h2.titre .num {
+    font-family: 'Public Sans', sans-serif;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--brique);
+    font-variant-numeric: tabular-nums;
+    flex: none;
+    padding-top: 0.35rem;
+  }
+
+  h3 { font-size: 0.9375rem; font-weight: 700; margin: 0.5rem 0 0; }
+
+  p, li { margin: 0; }
+  section p + p { margin-top: -0.25rem; }
+  ul.corps { margin: 0; padding-left: 1.15rem; display: flex; flex-direction: column; gap: 0.5rem; }
+
+  a { color: var(--brique); text-underline-offset: 0.15em; }
+  a:focus-visible { outline: 2px solid var(--brique); outline-offset: 3px; border-radius: 2px; }
+
+  .tableau { overflow-x: auto; border-top: 1px solid var(--filet); }
+  table { border-collapse: collapse; width: 100%; min-width: 30rem; font-size: 0.9375rem; }
+  th, td { text-align: left; padding: 0.75rem 1rem 0.75rem 0; border-bottom: 1px solid var(--filet); vertical-align: top; }
+  th { font-size: 0.6875rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--grave); font-weight: 700; }
+  td:first-child { font-weight: 500; white-space: nowrap; padding-right: 2rem; }
+  td.note { color: var(--grave); }
+
+  .marqueur {
+    background: var(--surface);
+    border: 1px dashed var(--brique);
+    padding: 1rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .marqueur strong { color: var(--brique); }
+
+  footer {
+    border-top: 1px solid var(--filet);
+    padding-top: 1.5rem;
+    color: var(--grave);
+    font-size: 0.8125rem;
+  }
+</style>
+
+<div class="page">
+
+  <header>
+    <p class="eyebrow">Anecto</p>
+    <h1>Politique de confidentialité</h1>
+    <p class="chapo">Anecto vous envoie chaque jour une anecdote vérifiée sur votre ville. Pour cela, l'application a besoin de savoir qui vous êtes, où vous habitez et à quelle heure vous joindre. Cette page dit exactement ce qui est collecté, pourquoi, et ce qui ne l'est pas.</p>
+    <p class="daté">En vigueur le 19 août 2026 · Version 1.0</p>
+  </header>
+
+  <div class="essentiel">
+    <h2>L'essentiel</h2>
+    <ul>
+      <li>Votre adresse e-mail, votre ville, votre fuseau horaire et votre heure de notification. Rien d'autre.</li>
+      <li>Vos données sont hébergées <strong>dans l'Union européenne</strong> (Irlande).</li>
+      <li>Aucune publicité, aucun traceur, aucune revente, aucun profilage.</li>
+      <li>Aucune donnée personnelle n'est transmise au modèle d'intelligence artificielle qui rédige les anecdotes.</li>
+      <li>Vous supprimez votre compte et toutes vos données depuis l'application, en deux touches.</li>
+    </ul>
+  </div>
+
+  <div class="marqueur">
+    <p><strong>À compléter avant publication.</strong> Les mentions <em>[ÉDITEUR]</em> et <em>[ADRESSE DE CONTACT]</em> doivent être remplacées par l'identité du responsable de traitement et une adresse e-mail de contact dédiée. Le RGPD impose de pouvoir identifier et joindre le responsable ; Apple et Google vérifient ce point.</p>
+  </div>
+
+  <section>
+    <h2 class="titre"><span class="num">01</span>Qui traite vos données</h2>
+    <p>Le responsable du traitement est <em>[ÉDITEUR]</em>, éditeur de l'application Anecto. Pour toute question relative à vos données, écrivez à <em>[ADRESSE DE CONTACT]</em>.</p>
+  </section>
+
+  <section>
+    <h2 class="titre"><span class="num">02</span>Ce qui est collecté, et pourquoi</h2>
+    <div class="tableau">
+      <table>
+        <thead>
+          <tr><th>Donnée</th><th>Raison</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Adresse e-mail</td><td>Créer votre compte et vous connecter. Aucun mot de passe n'est stocké : la connexion se fait par un code à usage unique envoyé par e-mail.</td></tr>
+          <tr><td>Ville</td><td>Choisir les anecdotes qui vous concernent. Sont enregistrés le nom de la ville, son identifiant Google Places, ses coordonnées et son code pays.</td></tr>
+          <tr><td>Fuseau horaire</td><td>Envoyer la notification à l'heure locale que vous avez choisie.</td></tr>
+          <tr><td>Heure de notification</td><td>Le moment de la journée où vous souhaitez être averti.</td></tr>
+          <tr><td>Jeton de notification</td><td>Identifiant technique délivré par votre téléphone, nécessaire pour lui adresser une notification. Il ne vous identifie pas en dehors de ce rôle.</td></tr>
+          <tr><td>Historique de lecture</td><td>Ne jamais vous envoyer deux fois la même anecdote, et calculer votre série de jours consécutifs.</td></tr>
+          <tr><td>Vos contributions</td><td>Corrections et propositions d'anecdotes, avec le texte que vous écrivez. Elles nous sont transmises par e-mail afin d'être relues.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Aucune donnée de localisation en temps réel n'est collectée. L'application ne demande jamais l'accès à votre position : vous désignez votre ville vous-même, en la cherchant par son nom.</p>
+  </section>
+
+  <section>
+    <h2 class="titre"><span class="num">03</span>Sur quel fondement</h2>
+    <ul class="corps">
+      <li><strong>L'exécution du service</strong> (article 6.1.b du RGPD) pour votre compte, votre ville et votre historique : sans eux, l'application ne peut rien vous envoyer.</li>
+      <li><strong>Votre consentement</strong> (article 6.1.a) pour les notifications. Votre téléphone vous le demande explicitement, et vous pouvez le retirer à tout moment dans ses réglages.</li>
+      <li><strong>Notre intérêt légitime</strong> (article 6.1.f) pour traiter les corrections que vous nous adressez, dans le seul but de vérifier et d'améliorer le contenu.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2 class="titre"><span class="num">04</span>Où vos données sont hébergées</h2>
+    <p>La base de données et l'authentification sont opérées par Supabase, dans sa région <strong>eu-west-1 (Irlande)</strong>. Vos données restent donc dans l'Union européenne.</p>
+    <p>L'envoi des notifications transite par les serveurs d'Expo, situés aux États-Unis, puis par Apple ou Google selon votre téléphone. Ce transfert est limité au jeton de notification et au texte de l'annonce.</p>
+  </section>
+
+  <section>
+    <h2 class="titre"><span class="num">05</span>Qui d'autre voit quoi</h2>
+    <div class="tableau">
+      <table>
+        <thead>
+          <tr><th>Destinataire</th><th>Ce qu'il reçoit</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Supabase</td><td>L'ensemble de vos données, en qualité d'hébergeur.</td></tr>
+          <tr><td>Google Places</td><td>Uniquement le texte que vous tapez dans la recherche de ville. Ni votre compte, ni votre e-mail, ni aucun identifiant vous concernant.</td></tr>
+          <tr><td>Expo</td><td>Votre jeton de notification et le texte de l'annonce quotidienne.</td></tr>
+          <tr><td>Google (Gmail)</td><td>Le contenu de vos contributions et votre adresse e-mail, uniquement lorsque vous nous écrivez depuis l'application, afin que nous puissions vous répondre.</td></tr>
+          <tr><td class="note">DeepSeek</td><td class="note">Rien qui vous concerne. Le modèle qui rédige les anecdotes ne reçoit que des noms de villes et des extraits d'articles encyclopédiques publics.</td></tr>
+          <tr><td class="note">Wikipédia</td><td class="note">Rien qui vous concerne. Les articles sont consultés depuis nos serveurs, jamais depuis votre téléphone.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Vos données ne sont ni vendues, ni louées, ni transmises à des annonceurs ou à des courtiers en données.</p>
+  </section>
+
+  <section>
+    <h2 class="titre"><span class="num">06</span>Combien de temps</h2>
+    <p>Vos données sont conservées tant que votre compte existe. Lorsque vous le supprimez, votre profil, votre historique de lecture et vos contributions sont effacés définitivement, sans délai de rétention.</p>
+    <p>Les e-mails d'alerte déjà reçus dans notre boîte, qui contiennent le texte de vos contributions, sont supprimés dans un délai de douze mois.</p>
+  </section>
+
+  <section>
+    <h2 class="titre"><span class="num">07</span>Vos droits</h2>
+    <p>Le RGPD vous donne un droit d'accès, de rectification, d'effacement, de portabilité, de limitation et d'opposition sur vos données.</p>
+    <p><strong>L'effacement est immédiat et à votre main :</strong> ouvrez l'onglet Réglages, puis « Supprimer mon compte ». Aucune demande à formuler, aucun délai.</p>
+    <p>Pour les autres droits, écrivez à <em>[ADRESSE DE CONTACT]</em>. Vous pouvez également introduire une réclamation auprès de la <a href="https://www.cnil.fr" rel="noopener">CNIL</a>.</p>
+  </section>
+
+  <section>
+    <h2 class="titre"><span class="num">08</span>Notifications</h2>
+    <p>Anecto vous envoie une notification par jour, à l'heure que vous avez fixée. Vous pouvez changer cette heure dans l'application, ou couper les notifications dans les réglages de votre téléphone — l'application reste utilisable, l'anecdote du jour vous attend simplement à l'ouverture.</p>
+  </section>
+
+  <section>
+    <h2 class="titre"><span class="num">09</span>Ce que l'application ne fait pas</h2>
+    <ul class="corps">
+      <li>Aucune régie publicitaire, aucun kit de mesure d'audience, aucun traceur tiers n'est intégré à l'application.</li>
+      <li>Aucun profilage, aucune décision automatisée produisant des effets juridiques à votre égard.</li>
+      <li>Aucun accès à vos contacts, à vos photos, à votre microphone ni à votre position.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2 class="titre"><span class="num">10</span>Mineurs</h2>
+    <p>Anecto n'est pas destinée aux enfants de moins de 15 ans et ne collecte pas sciemment leurs données. Si vous constatez qu'un compte a été créé par un enfant, écrivez-nous : il sera supprimé.</p>
+  </section>
+
+  <section>
+    <h2 class="titre"><span class="num">11</span>Modifications</h2>
+    <p>Cette politique peut évoluer. La date d'entrée en vigueur figure en tête de page. Tout changement affectant vos droits vous sera signalé dans l'application avant son application.</p>
+  </section>
+
+  <footer>
+    <p>Anecto — une anecdote vraie et vérifiée sur votre ville, chaque jour. Les anecdotes s'appuient sur des sources publiques citées et consultables dans l'application.</p>
+  </footer>
+
+</div>
