@@ -35,8 +35,6 @@
       ]
     ],
     "extra": {
-      "supabaseUrl": "SUPABASE_URL_A_RENSEIGNER",
-      "supabaseAnonKey": "SUPABASE_ANON_KEY_A_RENSEIGNER",
       "eas": {
         "projectId": "A_RENSEIGNER_APRES_EAS_INIT"
       }
