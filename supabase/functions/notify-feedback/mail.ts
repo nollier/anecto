@@ -16,6 +16,8 @@ export interface Reglages {
   utilisateur: string;
   motDePasse: string;
   destinataire: string;
+  /** Adresse affichée comme expéditeur. Distincte du compte SMTP. */
+  expediteur: string;
 }
 
 export function lireReglages(): Reglages | null {
@@ -31,6 +33,12 @@ export function lireReglages(): Reglages | null {
     utilisateur,
     motDePasse,
     destinataire,
+    // L'adresse affichée n'est pas forcément le compte qui s'authentifie :
+    // on peut expédier depuis anecto@mail.fr en se connectant avec un autre
+    // compte, à condition que le serveur SMTP autorise cette adresse — chez
+    // Gmail, elle doit être déclarée en alias vérifié, sinon l'expéditeur est
+    // silencieusement réécrit.
+    expediteur: Deno.env.get('ANECTO_FROM_EMAIL') ?? utilisateur,
     // 465 impose TLS dès la connexion, ce que gère `tls: true` ci-dessous.
     port: Number(Deno.env.get('SMTP_PORT') ?? '465'),
   };
@@ -53,9 +61,10 @@ export async function envoyer(
 
   try {
     await client.send({
-      from: `Anecto <${reglages.utilisateur}>`,
+      from: `Anecto <${reglages.expediteur}>`,
+      // Répondre à l'alerte doit écrire à Anecto, pas au compte technique.
+      replyTo: reglages.expediteur,
       to: reglages.destinataire,
-      // Répondre à l'alerte écrit directement à la personne qui a proposé.
       subject: sujet,
       content: texte,
       html,
