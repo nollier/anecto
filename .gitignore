@@ -7,6 +7,12 @@ npm-debug.*
 *.p12
 *.key
 *.mobileprovision
+
+# Clé privée du compte de service Firebase : accès admin au projet.
+# À ne pas confondre avec google-services.json, qui est une configuration
+# publique embarquée dans chaque APK et versionnée avec le reste.
+*-adminsdk-*.json
+firebase-adminsdk*.json
 *.orig.*
 web-build/
 .env
