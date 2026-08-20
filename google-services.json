@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "716944465734",
+    "project_id": "anecto",
+    "storage_bucket": "anecto.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:716944465734:android:bac8c4bd464cb752e40f47",
+        "android_client_info": {
+          "package_name": "fr.anecto.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCH1rHpP8sxTtLyVmmQLL_3QGrG7hGprQw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
