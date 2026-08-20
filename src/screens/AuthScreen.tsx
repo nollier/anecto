@@ -8,7 +8,7 @@ import {
   Alert,
   ActivityIndicator,
   KeyboardAvoidingView,
-  Platform,
+  ScrollView,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 
@@ -83,75 +83,93 @@ export default function AuthScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <Text style={styles.appName}>📖 Anecto</Text>
-      <Text style={styles.tagline}>Une anecdote vraie de ta ville, chaque jour.</Text>
+    // `behavior` valait `undefined` sur Android : le composant n'y faisait donc
+    // rien du tout. Le champ, centré verticalement, se retrouvait pile sous le
+    // clavier — impossible de voir ce qu'on tapait.
+    //
+    // `padding` sur les deux plateformes : depuis que l'affichage Android va de
+    // bord à bord, la fenêtre n'est plus redimensionnée à l'ouverture du
+    // clavier, et c'est à la vue de se décaler elle-même.
+    //
+    // Le ScrollView est le filet de sécurité : même si le décalage se trompe
+    // de quelques pixels, ou sur un écran très court, le champ reste
+    // atteignable à la main plutôt que hors de portée.
+    <KeyboardAvoidingView style={styles.flex} behavior="padding">
+      <ScrollView
+        contentContainerStyle={styles.container}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={styles.appName}>📖 Anecto</Text>
+        <Text style={styles.tagline}>Une anecdote vraie de ta ville, chaque jour.</Text>
 
-      {etape === 'email' ? (
-        <>
-          <TextInput
-            style={styles.input}
-            value={email}
-            onChangeText={setEmail}
-            placeholder="ton@email.com"
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="email-address"
-            textContentType="emailAddress"
-            editable={!loading}
-            onSubmitEditing={envoyerCode}
-          />
-          <TouchableOpacity style={styles.btn} onPress={envoyerCode} disabled={loading}>
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.btnText}>Recevoir mon code</Text>
-            )}
-          </TouchableOpacity>
-        </>
-      ) : (
-        <>
-          <Text style={styles.consigne}>
-            Code envoyé à {email}. Saisis les chiffres reçus.
-          </Text>
-          <TextInput
-            style={styles.codeInput}
-            value={code}
-            onChangeText={(t) => setCode(t.replace(/\D/g, '').slice(0, CODE_MAX))}
-            placeholder={'0'.repeat(CODE_ATTENDU)}
-            keyboardType="number-pad"
-            textContentType="oneTimeCode"
-            autoComplete="one-time-code"
-            maxLength={CODE_MAX}
-            autoFocus
-            editable={!loading}
-            onSubmitEditing={verifierCode}
-          />
-          <TouchableOpacity
-            style={[styles.btn, code.length < CODE_MIN && styles.btnDisabled]}
-            onPress={verifierCode}
-            disabled={loading || code.length < CODE_MIN}
-          >
-            {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Se connecter</Text>}
-          </TouchableOpacity>
+        {etape === 'email' ? (
+          <>
+            <TextInput
+              style={styles.input}
+              value={email}
+              onChangeText={setEmail}
+              placeholder="ton@email.com"
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="email-address"
+              textContentType="emailAddress"
+              editable={!loading}
+              onSubmitEditing={envoyerCode}
+            />
+            <TouchableOpacity style={styles.btn} onPress={envoyerCode} disabled={loading}>
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.btnText}>Recevoir mon code</Text>
+              )}
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <Text style={styles.consigne}>
+              Code envoyé à {email}. Saisis les chiffres reçus.
+            </Text>
+            <TextInput
+              style={styles.codeInput}
+              value={code}
+              onChangeText={(t) => setCode(t.replace(/\D/g, '').slice(0, CODE_MAX))}
+              placeholder={'0'.repeat(CODE_ATTENDU)}
+              keyboardType="number-pad"
+              textContentType="oneTimeCode"
+              autoComplete="one-time-code"
+              maxLength={CODE_MAX}
+              autoFocus
+              editable={!loading}
+              onSubmitEditing={verifierCode}
+            />
+            <TouchableOpacity
+              style={[styles.btn, code.length < CODE_MIN && styles.btnDisabled]}
+              onPress={verifierCode}
+              disabled={loading || code.length < CODE_MIN}
+            >
+              {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Se connecter</Text>}
+            </TouchableOpacity>
 
-          <TouchableOpacity onPress={envoyerCode} disabled={loading}>
-            <Text style={styles.lien}>Renvoyer un code</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => setEtape('email')} disabled={loading}>
-            <Text style={styles.lien}>Changer d'adresse</Text>
-          </TouchableOpacity>
-        </>
-      )}
+            <TouchableOpacity onPress={envoyerCode} disabled={loading}>
+              <Text style={styles.lien}>Renvoyer un code</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setEtape('email')} disabled={loading}>
+              <Text style={styles.lien}>Changer d'adresse</Text>
+            </TouchableOpacity>
+          </>
+        )}
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: 'center', padding: 24, backgroundColor: '#fff' },
+  flex: { flex: 1, backgroundColor: '#fff' },
+  // `flexGrow` et non `flex` : dans un contentContainerStyle, `flex: 1` fige la
+  // hauteur du contenu à celle du cadre et empêche tout défilement — le filet
+  // de sécurité ne servirait alors à rien.
+  container: { flexGrow: 1, justifyContent: 'center', padding: 24, backgroundColor: '#fff' },
   appName: { fontSize: 32, fontWeight: '800', textAlign: 'center', marginBottom: 8 },
   tagline: { fontSize: 15, color: '#666', textAlign: 'center', marginBottom: 40 },
   consigne: { fontSize: 15, color: '#333', textAlign: 'center', marginBottom: 20, lineHeight: 21 },
