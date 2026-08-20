@@ -7,6 +7,16 @@ export interface CitySuggestion {
   secondary: string;
 }
 
+/**
+ * Une ville qu'Anecto sait servir. Le catalogue se déduit des anecdotes
+ * validées, il ne comporte donc jamais de ville vide — et n'expose aucun
+ * compteur, la taille du stock restant hors de vue.
+ */
+export interface VilleCouverte {
+  ville: string;
+  place_id: string;
+}
+
 /** La ville résolue, telle qu'on la stocke sur le profil. */
 export interface CityDetails {
   placeId: string;

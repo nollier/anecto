@@ -15,10 +15,10 @@ import { registerForPushNotificationsAsync } from '../lib/notifications';
 import { deviceTimezone } from '../lib/places';
 import CityPicker from '../components/CityPicker';
 import { POLITIQUE_CONFIDENTIALITE } from '../lib/legal';
-import { CityDetails } from '../types';
+import { VilleCouverte } from '../types';
 
 export default function SettingsScreen() {
-  const [city, setCity] = useState<CityDetails | null>(null);
+  const [city, setCity] = useState<VilleCouverte | null>(null);
   const [legacyCity, setLegacyCity] = useState<string | null>(null);
   const [notifTime, setNotifTime] = useState(new Date(new Date().setHours(21, 0, 0, 0)));
   const [showPicker, setShowPicker] = useState(false);
@@ -35,24 +35,17 @@ export default function SettingsScreen() {
 
     const { data } = await supabase
       .from('profiles')
-      .select('city, city_place_id, city_lat, city_lng, country_code, notification_hour')
+      .select('city, city_place_id, notification_hour')
       .eq('id', userData.user.id)
       .maybeSingle();
 
     if (!data) return;
 
-    if (data.city_place_id && data.city_lat !== null && data.city_lng !== null) {
-      setCity({
-        placeId: data.city_place_id,
-        name: data.city,
-        formattedAddress: data.city,
-        latitude: data.city_lat,
-        longitude: data.city_lng,
-        countryCode: data.country_code ?? null,
-      });
+    if (data.city_place_id) {
+      setCity({ ville: data.city, place_id: data.city_place_id });
     } else if (data.city) {
-      // Profil créé avant l'autocomplétion : la ville était du texte libre et
-      // n'est rattachée à rien. On demande de la resélectionner.
+      // Profil d'avant le rattachement à un identifiant de lieu : la ville
+      // était du texte libre. On demande de la resélectionner au catalogue.
       setLegacyCity(data.city);
     }
 
@@ -85,11 +78,8 @@ export default function SettingsScreen() {
 
       const { error } = await supabase.from('profiles').upsert({
         id: userData.user.id,
-        city: city.name,
-        city_place_id: city.placeId,
-        city_lat: city.latitude,
-        city_lng: city.longitude,
-        country_code: city.countryCode,
+        city: city.ville,
+        city_place_id: city.place_id,
         timezone: deviceTimezone(),
         notification_hour: `${hh}:${mm}:00`,
         // Absent du payload quand il n'y a pas de jeton : l'omettre préserve
@@ -108,8 +98,8 @@ export default function SettingsScreen() {
       Alert.alert(
         'Enregistré',
         pushToken
-          ? `Anecdotes de ${city.name} tous les jours à ${hh}:${mm}.`
-          : `Anecdotes de ${city.name} tous les jours à ${hh}:${mm}.\n\nLes notifications ne sont pas disponibles ici (Expo Go, ou projectId EAS manquant) : l'anecdote reste consultable dans l'onglet Aujourd'hui.`
+          ? `Anecdotes de ${city.ville} tous les jours à ${hh}:${mm}.`
+          : `Anecdotes de ${city.ville} tous les jours à ${hh}:${mm}.\n\nLes notifications ne sont pas disponibles ici (Expo Go, ou projectId EAS manquant) : l'anecdote reste consultable dans l'onglet Aujourd'hui.`
       );
     } catch (err) {
       Alert.alert('Erreur', err instanceof Error ? err.message : "L'enregistrement a échoué.");

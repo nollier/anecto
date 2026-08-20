@@ -170,9 +170,18 @@ export default function HomeScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadTodayAnecdote(); }} />
         }
       >
+        {/* Deux situations très différentes derrière un même écran vide : une
+            ville épuisée revient demain, une ville non couverte ne reviendra
+            jamais. L'ancien « reviens plus tard » promettait la première à
+            tout le monde, y compris à ceux pour qui c'était faux. */}
+        <Text style={styles.emptyTitle}>Rien à lire aujourd'hui</Text>
         <Text style={styles.emptyText}>
-          Aucune anecdote disponible pour ta ville aujourd'hui. Reviens un peu plus tard !
+          Tu as lu toutes les anecdotes disponibles pour ta ville. D'autres
+          arrivent — et tu peux dès maintenant suivre une autre ville.
         </Text>
+        <TouchableOpacity style={styles.cta} onPress={() => navigation.navigate('Réglages')}>
+          <Text style={styles.ctaText}>Changer de ville</Text>
+        </TouchableOpacity>
       </ScrollView>
     );
   }
