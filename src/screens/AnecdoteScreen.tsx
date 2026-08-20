@@ -37,7 +37,9 @@ export default function AnecdoteScreen() {
       {/* Comme sur l'écran du jour : l'accroche porte le titre, avec repli sur
           l'étiquette courte pour les anecdotes d'avant l'accroche. */}
       <Text style={styles.title}>{anecdote.hook || anecdote.title}</Text>
-      <Text style={styles.body}>{anecdote.body}</Text>
+      <Text style={styles.body} textBreakStrategy="highQuality">
+        {anecdote.body}
+      </Text>
 
       {anecdote.source_url ? (
         <TouchableOpacity onPress={ouvrirSource} accessibilityRole="link">
@@ -55,7 +57,9 @@ const styles = StyleSheet.create({
   content: { padding: 20, paddingBottom: 48 },
   eyebrow: { fontSize: 13, color: '#888', marginBottom: 8, fontWeight: '600' },
   title: { fontSize: 21, fontWeight: '700', lineHeight: 28, marginBottom: 18, color: '#1a1a1a' },
-  body: { fontSize: 16, lineHeight: 26, color: '#333' },
+  // Justifié comme sur l'écran du jour : une anecdote relue doit se présenter
+  // exactement comme à sa première lecture.
+  body: { fontSize: 16, lineHeight: 26, color: '#333', textAlign: 'justify' },
   source: { fontSize: 12, color: '#999', marginTop: 20, fontStyle: 'italic' },
   sourceLink: { fontSize: 12, color: '#007AFF', marginTop: 20 },
 });

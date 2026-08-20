@@ -5,7 +5,7 @@
 // Ce fichier n'utilise aucune API Deno, exprès : les tests tournent aussi bien
 // sous `deno test` que sous `node --experimental-strip-types --test`.
 
-// Trois plutôt que deux depuis que le corps fait 300 à 450 mots : un récit
+// Trois plutôt que deux depuis que le corps fait 320 à 400 mots : un récit
 // long avance beaucoup plus d'affirmations qu'un paragraphe, et deux citations
 // n'en couvriraient plus qu'une petite part.
 export const MIN_CITATIONS = 3;
