@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   StyleSheet,
@@ -7,94 +7,75 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { getCityDetails, newSessionToken, searchCities } from '../lib/places';
-import { CityDetails, CitySuggestion } from '../types';
-
-const DEBOUNCE_MS = 300;
+import { filtrerVilles, villesCouvertes } from '../lib/villes';
+import { VilleCouverte } from '../types';
+import DemandeVille from './DemandeVille';
 
 interface Props {
-  value: CityDetails | null;
-  onChange: (city: CityDetails | null) => void;
+  value: VilleCouverte | null;
+  onChange: (ville: VilleCouverte | null) => void;
 }
 
+/**
+ * Choix de la ville dans le catalogue de ce qu'Anecto sait servir.
+ *
+ * Avant, la recherche interrogeait Google Places : on pouvait donc choisir
+ * n'importe quelle commune du monde, et se retrouver devant un écran vide.
+ * Le catalogue vient maintenant de la base, et une ville absente ouvre une
+ * demande plutôt qu'une impasse.
+ */
 export default function CityPicker({ value, onChange }: Props) {
-  const [query, setQuery] = useState('');
-  const [suggestions, setSuggestions] = useState<CitySuggestion[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [resolving, setResolving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // Renouvelé après chaque sélection : une session Places = une saisie + un details.
-  const sessionToken = useRef(newSessionToken());
-  // Numéro de la dernière requête lancée, pour ignorer les réponses en retard.
-  const requestId = useRef(0);
+  const [catalogue, setCatalogue] = useState<VilleCouverte[]>([]);
+  const [chargement, setChargement] = useState(true);
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [saisie, setSaisie] = useState('');
+  const [demandeOuverte, setDemandeOuverte] = useState(false);
 
   useEffect(() => {
-    if (value || query.trim().length < 2) {
-      setSuggestions([]);
-      setSearching(false);
-      return;
-    }
+    charger();
+  }, []);
 
-    const current = ++requestId.current;
-    setSearching(true);
-
-    const timer = setTimeout(async () => {
-      try {
-        const results = await searchCities(query.trim(), sessionToken.current);
-        if (current !== requestId.current) return;
-        setSuggestions(results);
-        setError(null);
-      } catch (err) {
-        if (current !== requestId.current) return;
-        // Le message vient de l'Edge Function : il dit ce qui a réellement
-        // échoué, ce qu'un « vérifie ta connexion » générique masquerait.
-        setError(err instanceof Error ? err.message : 'Recherche indisponible.');
-      } finally {
-        if (current === requestId.current) setSearching(false);
-      }
-    }, DEBOUNCE_MS);
-
-    return () => clearTimeout(timer);
-  }, [query, value]);
-
-  async function select(suggestion: CitySuggestion) {
-    setResolving(true);
-    setError(null);
+  async function charger() {
+    setChargement(true);
+    setErreur(null);
     try {
-      const city = await getCityDetails(suggestion.placeId, sessionToken.current);
-      sessionToken.current = newSessionToken();
-      requestId.current++;
-      setSuggestions([]);
-      setQuery('');
-      onChange(city);
+      setCatalogue(await villesCouvertes());
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Impossible de sélectionner cette ville.');
+      setErreur(err instanceof Error ? err.message : 'Chargement impossible.');
     } finally {
-      setResolving(false);
+      setChargement(false);
     }
   }
 
-  function clear() {
-    sessionToken.current = newSessionToken();
-    requestId.current++;
-    setSuggestions([]);
-    setQuery('');
-    setError(null);
-    onChange(null);
-  }
+  const resultats = useMemo(() => filtrerVilles(catalogue, saisie), [catalogue, saisie]);
+  const recherche = saisie.trim();
+  const aucunResultat = !chargement && recherche.length > 0 && resultats.length === 0;
 
   if (value) {
     return (
       <View style={styles.selected}>
-        <View style={styles.selectedText}>
-          <Text style={styles.selectedName}>{value.name}</Text>
-          <Text style={styles.selectedAddress} numberOfLines={1}>
-            {value.formattedAddress}
-          </Text>
-        </View>
-        <TouchableOpacity onPress={clear} accessibilityRole="button">
+        <Text style={styles.selectedName}>{value.ville}</Text>
+        <TouchableOpacity onPress={() => onChange(null)} accessibilityRole="button">
           <Text style={styles.change}>Changer</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (chargement) {
+    return (
+      <View style={styles.chargement}>
+        <ActivityIndicator />
+      </View>
+    );
+  }
+
+  if (erreur) {
+    return (
+      <View>
+        <Text style={styles.erreur}>{erreur}</Text>
+        <TouchableOpacity style={styles.secondaire} onPress={charger}>
+          <Text style={styles.secondaireTexte}>Réessayer</Text>
         </TouchableOpacity>
       </View>
     );
@@ -102,57 +83,87 @@ export default function CityPicker({ value, onChange }: Props) {
 
   return (
     <View>
-      <View style={styles.inputRow}>
-        <TextInput
-          style={styles.input}
-          value={query}
-          onChangeText={setQuery}
-          placeholder="Ex : Saint-Malo"
-          autoCorrect={false}
-          autoCapitalize="words"
-          editable={!resolving}
-        />
-        {(searching || resolving) && <ActivityIndicator style={styles.spinner} />}
-      </View>
+      <TextInput
+        style={styles.input}
+        value={saisie}
+        onChangeText={setSaisie}
+        placeholder="Cherche ta ville"
+        autoCorrect={false}
+        autoCapitalize="words"
+        clearButtonMode="while-editing"
+      />
 
-      {error && <Text style={styles.error}>{error}</Text>}
-
-      {suggestions.length > 0 && (
-        <View style={styles.list}>
-          {suggestions.map((suggestion) => (
+      {/* Le catalogue s'affiche d'emblée, saisie vide : on voit ce qui existe
+          avant même de chercher, plutôt qu'un champ muet. */}
+      {resultats.length > 0 && (
+        <View style={styles.liste}>
+          {resultats.map((v) => (
             <TouchableOpacity
-              key={suggestion.placeId}
-              style={styles.row}
-              onPress={() => select(suggestion)}
-              disabled={resolving}
+              key={v.place_id}
+              style={styles.ligne}
               accessibilityRole="button"
+              onPress={() => {
+                setSaisie('');
+                onChange(v);
+              }}
             >
-              <Text style={styles.rowName}>{suggestion.name}</Text>
-              {!!suggestion.secondary && (
-                <Text style={styles.rowSecondary} numberOfLines={1}>
-                  {suggestion.secondary}
-                </Text>
-              )}
+              <Text style={styles.ligneNom}>{v.ville}</Text>
             </TouchableOpacity>
           ))}
         </View>
       )}
 
-      {!searching && !error && query.trim().length >= 2 && suggestions.length === 0 && (
-        <Text style={styles.empty}>Aucune ville trouvée.</Text>
+      {/* L'échec de la recherche est le seul endroit où l'utilisateur a besoin
+          d'aide. Le bouton y est plein, nomme sa ville, et annonce ce qui va
+          se passer — un lien discret laisserait croire à une impasse. */}
+      {aucunResultat && (
+        <View style={styles.absente}>
+          <Text style={styles.absenteTitre}>
+            Anecto ne couvre pas encore « {recherche} ».
+          </Text>
+          <TouchableOpacity
+            style={styles.demanderBtn}
+            accessibilityRole="button"
+            onPress={() => setDemandeOuverte(true)}
+          >
+            <Text style={styles.demanderBtnTexte}>Demander l'ajout de {recherche}</Text>
+          </TouchableOpacity>
+          <Text style={styles.absenteAide}>
+            On te préviendra par e-mail dès que ses anecdotes seront prêtes.
+          </Text>
+        </View>
       )}
+
+      <DemandeVille
+        visible={demandeOuverte}
+        saisie={recherche}
+        onClose={() => setDemandeOuverte(false)}
+        onDemandee={() => {
+          setDemandeOuverte(false);
+          setSaisie('');
+        }}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  inputRow: { justifyContent: 'center' },
+  chargement: { paddingVertical: 24, alignItems: 'center' },
   input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 10, padding: 14, fontSize: 16 },
-  spinner: { position: 'absolute', right: 14 },
-  list: { borderWidth: 1, borderColor: '#eee', borderRadius: 10, marginTop: 8, overflow: 'hidden' },
-  row: { paddingVertical: 12, paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: '#f2f2f2' },
-  rowName: { fontSize: 15, fontWeight: '600', color: '#1a1a1a' },
-  rowSecondary: { fontSize: 13, color: '#888', marginTop: 2 },
+  liste: {
+    borderWidth: 1,
+    borderColor: '#eee',
+    borderRadius: 10,
+    marginTop: 8,
+    overflow: 'hidden',
+  },
+  ligne: {
+    paddingVertical: 13,
+    paddingHorizontal: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f2f2f2',
+  },
+  ligneNom: { fontSize: 15, fontWeight: '600', color: '#1a1a1a' },
   selected: {
     borderWidth: 1,
     borderColor: '#ddd',
@@ -162,10 +173,34 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
   },
-  selectedText: { flex: 1 },
-  selectedName: { fontSize: 16, fontWeight: '600', color: '#1a1a1a' },
-  selectedAddress: { fontSize: 13, color: '#888', marginTop: 2 },
+  selectedName: { flex: 1, fontSize: 16, fontWeight: '600', color: '#1a1a1a' },
   change: { fontSize: 14, fontWeight: '600', color: '#007AFF' },
-  error: { fontSize: 13, color: '#b3402f', marginTop: 8 },
-  empty: { fontSize: 13, color: '#888', marginTop: 8 },
+  absente: {
+    marginTop: 16,
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: '#faf5f4',
+    borderWidth: 1,
+    borderColor: '#f0dfdb',
+    gap: 12,
+  },
+  absenteTitre: { fontSize: 15, fontWeight: '600', color: '#1a1a1a' },
+  absenteAide: { fontSize: 13, color: '#8a7a76', lineHeight: 18 },
+  demanderBtn: {
+    backgroundColor: '#b3402f',
+    paddingVertical: 15,
+    paddingHorizontal: 18,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  demanderBtnTexte: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  erreur: { fontSize: 14, color: '#b3402f', marginBottom: 12 },
+  secondaire: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 10,
+    padding: 14,
+    alignItems: 'center',
+  },
+  secondaireTexte: { fontSize: 15, fontWeight: '600', color: '#1a1a1a' },
 });

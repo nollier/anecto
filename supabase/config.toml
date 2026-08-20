@@ -4,7 +4,13 @@ project_id = "anecto"
 [functions.city-search]
 verify_jwt = true
 
-# Appelée par un cron ou un script d'admin, pas par l'app.
+# Appelées par un cron ou un script d'admin, pas par l'app.
 # L'authentification se fait par l'en-tête x-anecto-admin-secret.
 [functions.generate-anecdote]
+verify_jwt = false
+
+[functions.notify-feedback]
+verify_jwt = false
+
+[functions.notify-city-ready]
 verify_jwt = false
