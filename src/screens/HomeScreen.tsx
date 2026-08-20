@@ -235,7 +235,9 @@ export default function HomeScreen() {
           de la notification — les anecdotes générées avant l'accroche n'en ont
           pas, d'où le repli. */}
       <Text style={styles.title}>{anecdote.hook || anecdote.title}</Text>
-      <Text style={styles.body}>{anecdote.body}</Text>
+      <Text style={styles.body} textBreakStrategy="highQuality">
+        {anecdote.body}
+      </Text>
 
       {/* La source cliquable est ce qui rend « vérifiée » contrôlable par le
           lecteur, au lieu d'être une promesse à croire sur parole. */}
@@ -311,7 +313,18 @@ const styles = StyleSheet.create({
   // 24 points la faisaient déborder sur quatre lignes.
   title: { fontSize: 21, fontWeight: '700', lineHeight: 28, marginBottom: 18, color: '#1a1a1a' },
   // Le corps se lit maintenant sur plusieurs paragraphes : l'interligne compte.
-  body: { fontSize: 16, lineHeight: 26, color: '#333' },
+  //
+  // Justifié, comme un texte imprimé. Sur une colonne étroite, la justification
+  // creuse des rivières de blanc si le moteur coupe les lignes au plus court :
+  // `textBreakStrategy` en « highQuality » lui fait au contraire optimiser le
+  // paragraphe entier. Sans ce réglage, Android justifie moins bien qu'il
+  // n'aligne à gauche.
+  body: {
+    fontSize: 16,
+    lineHeight: 26,
+    color: '#333',
+    textAlign: 'justify',
+  },
   source: { fontSize: 12, color: '#999', marginTop: 16, fontStyle: 'italic' },
   sourceLink: { fontSize: 12, color: '#007AFF', marginTop: 16 },
   emptyTitle: { fontSize: 20, fontWeight: '700', marginBottom: 12, color: '#1a1a1a' },

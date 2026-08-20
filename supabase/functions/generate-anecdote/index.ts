@@ -39,10 +39,16 @@ const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
 const MAX_COUNT = 10;
 
-// Un récit de 300 à 450 mots, pas un paragraphe. Le plancher est là pour
+// Un récit de 320 à 400 mots, pas un paragraphe. Le plancher est là pour
 // refuser un texte court : le modèle, faute de matière, a tendance à rendre
 // trois phrases plutôt qu'à répondre trouve = false.
-const MIN_BODY_CHARS = 1200;
+//
+// 1700 et non 1200 : au plancher précédent, le modèle rendait systématiquement
+// 1200 à 1500 caractères — il vise le minimum, il ne le dépasse pas. Les
+// anecdotes qu'on veut pour modèle en font 1800 à 2100, et c'est cette
+// longueur-là qui laisse la place aux dates, aux sommes et aux noms qui font
+// qu'on retient quelque chose.
+const MIN_BODY_CHARS = 1700;
 const MAX_BODY_CHARS = 3800; // la table plafonne à 4000
 const MAX_ACCROCHE_CHARS = 180;
 
@@ -93,16 +99,17 @@ FORME ATTENDUE
 
 - "titre" : 2 à 6 mots, sans point final. C'est une étiquette courte, reprise dans la notification quotidienne — surtout pas une phrase.
 - "accroche" : une seule phrase de 12 à 25 mots, sans point final. Elle part d'aujourd'hui et du concret — ce qu'on voit, ce qu'on traverse, ce qu'on ignore en passant — et annonce la surprise sans la déflorer.
-- "corps" : 300 à 450 mots, en 3 ou 4 paragraphes séparés par une ligne vide.
+- "corps" : 320 à 400 mots, en 4 ou 5 paragraphes séparés par une ligne vide. En dessous de 320 mots le récit est toujours trop maigre : c'est le signe qu'il manque des dates, des sommes ou des noms que le dossier contient pourtant.
 
 COMMENT RACONTER
 
 Premier paragraphe : pars d'un geste ordinaire d'aujourd'hui — ce qu'on longe, ce qu'on traverse, ce devant quoi on passe sans le voir — puis installe l'étonnement.
 Interdit d'ouvrir par une situation géographique générique. « Au cœur du centre historique de X », « Située en Bretagne, la ville de X », « Dans le centre-ville de X » : ces formules sont bannies. On commence par quelqu'un qui fait quelque chose, ou par l'objet lui-même.
-Paragraphes du milieu : déroule l'histoire dans l'ordre, avec ses dates, ses noms, ses chiffres. Ce sont les détails précis qui font qu'on retient — une dimension, un coût, le nom de l'ingénieur, la durée d'un chantier, le nombre de pièces.
-Dernier paragraphe : ce qu'il en reste aujourd'hui, ou le détail qui frappe.
+Paragraphes du milieu : déroule l'histoire dans l'ordre, avec ses dates, ses noms, ses chiffres. Ce sont les détails précis qui font qu'on retient — une dimension, un coût, le nom de l'ingénieur, la durée d'un chantier, le nombre de pièces. Ne résume pas ce que le dossier détaille : si tu connais la somme exacte, écris-la ; si tu connais le jour, écris le jour. Un récit qui dit « au XVIIIe siècle » quand le dossier dit « le 15 septembre 1763 » a perdu ce qui faisait son intérêt.
+Dernier paragraphe : ce qu'il en reste aujourd'hui. La dernière phrase apporte un renversement, ou un détail concret qu'on n'attendait pas — jamais une conclusion générale.
 
-Présent de narration, du premier au dernier mot, y compris pour les événements anciens : « les cloches sonnent », jamais « les cloches se mirent à sonner ». Pas de passé simple, pas d'imparfait narratif.
+Présent de narration pour la colonne vertébrale du récit, y compris pour les événements anciens : « les cloches sonnent », jamais « les cloches se mirent à sonner ». Pas de passé simple, pas d'imparfait narratif.
+Les autres temps restent permis pour ce qui encadre ce récit : ce qui le précède, ce qu'il advient ensuite, ce qu'il en reste. « Il ne repartira plus jamais », « la maison a été détruite en 1944 », « la boucle était bouclée » sont justes à leur place. Le présent est la règle du déroulé, pas une contrainte sur la phrase finale.
 
 Aucune morale, aucun « saviez-vous que », aucune question rhétorique, aucune adresse au lecteur.
 
@@ -111,7 +118,7 @@ RÈGLES ABSOLUES
 - N'écris aucune date, aucun chiffre, aucun nom propre qui ne figure pas dans le dossier. Cela vaut pour l'accroche autant que pour le corps.
 - Recopie dans "citations" les phrases exactes du dossier qui établissent ton récit — caractère pour caractère, sans reformuler, sans couper un mot, sans corriger la ponctuation. Elles sont comparées automatiquement au dossier : une citation approximative fait rejeter tout le travail.
 - Il te faut au moins trois citations distinctes, couvrant les affirmations principales du récit.
-- Si le dossier ne permet pas d'écrire 300 mots sans rien inventer, renvoie trouve = false. C'est une réponse acceptable et attendue : mieux vaut rien qu'un récit brodé.
+- Si le dossier ne permet pas d'écrire 320 mots sans rien inventer, renvoie trouve = false. C'est une réponse acceptable et attendue : mieux vaut rien qu'un récit brodé.
 
 Réponds uniquement par un objet json de cette forme :
 {
@@ -269,7 +276,7 @@ async function generateOne(
   }
 
   // 2500 et non 800 : le vérificateur cite les passages qu'il conteste, et un
-  // récit de 450 mots lui en donne beaucoup plus qu'un paragraphe. À 800, sa
+  // récit de 400 mots lui en donne beaucoup plus qu'un paragraphe. À 800, sa
   // réponse était coupée en plein JSON — l'erreur remontait alors comme un
   // « JSON invalide renvoyé par DeepSeek » qui ne disait rien de la cause.
   let verification: Verification;
