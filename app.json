@@ -13,6 +13,7 @@
     },
     "android": {
       "package": "fr.anecto.app",
+      "googleServicesFile": "./google-services.json",
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "backgroundColor": "#C7643F",
