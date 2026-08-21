@@ -7,6 +7,13 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "scheme": "anecto",
+    "updates": {
+      "url": "https://u.expo.dev/94da1ca3-603f-41f0-bb60-232e22221f04",
+      "fallbackToCacheTimeout": 0
+    },
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "fr.anecto.app",
