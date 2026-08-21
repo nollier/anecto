@@ -279,12 +279,47 @@ et `feedback` étant en CASCADE.
 
 ```bash
 npx eas login
-npx eas init                 # récupère le projectId, à coller dans app.json > extra.eas.projectId
-npx eas build --platform ios
-npx eas build --platform android
-npx eas submit --platform ios
+npx eas build --platform android --profile production   # .aab pour le Play Store
+npx eas build --platform ios --profile production       # .ipa pour l'App Store
 npx eas submit --platform android
+npx eas submit --platform ios
 ```
+
+Le `projectId` est déjà dans `app.json` (`extra.eas.projectId`) : `eas init`
+n'a pas à être relancé, et le relancer casserait le lien avec les builds et
+les mises à jour existants.
+
+### Mises à jour à chaud — `eas update`
+
+Une correction qui ne touche qu'au JavaScript n'a pas besoin d'un nouveau
+binaire :
+
+```bash
+npx eas update --branch production --message "ce qui change"
+```
+
+Les appareils la récupèrent au lancement suivant. `fallbackToCacheTimeout: 0`
+fait que le démarrage n'attend jamais le réseau : la mise à jour se télécharge
+en arrière-plan et s'applique au lancement d'après.
+
+Ce qui **exige** un vrai build : tout ce qui est natif — `app.json`, icônes,
+permissions, plugins, ajout d'une dépendance à code natif, changement de SDK.
+
+`runtimeVersion` suit la politique `fingerprint` : Expo calcule une empreinte
+du projet natif et n'envoie une mise à jour qu'aux binaires dont l'empreinte
+correspond. Un `eas update` ne peut donc pas atterrir sur un build
+incompatible — il est simplement ignoré par ceux qui n'ont pas la bonne
+empreinte. C'est plus sûr qu'une politique fondée sur le numéro de version,
+qu'on oublie de monter.
+
+Chaque profil de `eas.json` porte son canal (`development`, `preview`,
+`production`), et `--branch` s'y raccorde. Un `eas update --branch preview`
+ne touche donc jamais les binaires de production.
+
+Attention : Google Play et Apple interdisent de modifier *substantiellement*
+le comportement d'une application par cette voie. Corriger un texte, un style
+ou une requête, oui ; livrer une fonctionnalité entière sans repasser par la
+revue, non.
 
 ## À faire ensuite
 
