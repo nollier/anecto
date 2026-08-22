@@ -13,6 +13,12 @@ npm-debug.*
 # publique embarquée dans chaque APK et versionnée avec le reste.
 *-adminsdk-*.json
 firebase-adminsdk*.json
+
+# Clé privée du compte de service Google Play : elle permet de publier une
+# version sur le magasin. Nomme-la bien ainsi si tu la poses dans le projet —
+# mieux vaut encore la charger chez EAS et ne jamais l'écrire ici.
+play-service-account*.json
+google-play-*.json
 *.orig.*
 web-build/
 .env
