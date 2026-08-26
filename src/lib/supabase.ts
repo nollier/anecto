@@ -1,4 +1,5 @@
 import 'react-native-url-polyfill/auto';
+import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL as string;
@@ -41,4 +42,25 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     persistSession: true,
     detectSessionInUrl: false,
   },
+});
+
+/**
+ * React Native suspend les timers JS dès que l'app passe en arrière-plan —
+ * y compris celui que `autoRefreshToken` programme pour renouveler le jeton
+ * avant son expiration. Sans relais, une app restée en veille (le cas
+ * typique : une notification arrive, l'utilisateur ouvre l'app des heures
+ * plus tard) retrouve un jeton expiré qu'aucun minuteur n'a renouvelé entre
+ * temps, d'où une session parfois traitée comme invalide alors qu'elle
+ * aurait dû être rafraîchie.
+ *
+ * On relance le rafraîchissement au retour au premier plan, et on l'arrête
+ * en arrière-plan pour ne pas consommer de réseau pour rien pendant que
+ * l'app est invisible.
+ */
+AppState.addEventListener('change', (state) => {
+  if (state === 'active') {
+    supabase.auth.startAutoRefresh();
+  } else {
+    supabase.auth.stopAutoRefresh();
+  }
 });
