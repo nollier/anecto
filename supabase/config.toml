@@ -14,3 +14,9 @@ verify_jwt = false
 
 [functions.notify-city-ready]
 verify_jwt = false
+
+# Appelée avant toute session : c'est elle qui en ouvre une pour le compte de
+# revue des magasins. Elle porte sa propre authentification — adresse et code
+# comparés à ses secrets — d'où verify_jwt à false.
+[functions.review-login]
+verify_jwt = false

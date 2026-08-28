@@ -32,6 +32,19 @@ const CODE_MAX = 10;
 // Sert uniquement d'indice visuel : à aligner sur le réglage du projet.
 const CODE_ATTENDU = 8;
 
+/**
+ * Compte de revue des magasins.
+ *
+ * Les examinateurs d'Apple et de Google doivent ouvrir l'application, mais
+ * n'ont pas accès à la boîte qui reçoit les codes. Cette adresse emprunte donc
+ * la fonction `review-login`, qui vérifie un code fixe côté serveur et rend un
+ * jeton de session — sans qu'aucun e-mail parte.
+ *
+ * Le code ne figure nulle part ici : il vit dans les secrets de la fonction.
+ * Connaître cette adresse n'ouvre donc rien.
+ */
+const EMAIL_REVUE = 'anecto@mail.fr';
+
 export default function AuthScreen() {
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
@@ -42,6 +55,16 @@ export default function AuthScreen() {
     const adresse = email.trim().toLowerCase();
     if (!adresse.includes('@')) {
       Alert.alert('Email invalide', 'Vérifie ton adresse.');
+      return;
+    }
+
+    // Le compte de revue passe directement à la saisie : son code est fixe,
+    // et lui envoyer un message encombrerait la boîte de contact à chaque
+    // ouverture de l'app par un examinateur.
+    if (adresse === EMAIL_REVUE) {
+      setEmail(adresse);
+      setCode('');
+      setEtape('code');
       return;
     }
 
@@ -62,11 +85,44 @@ export default function AuthScreen() {
     setEtape('code');
   }
 
+  /**
+   * Échange le code de revue contre une session.
+   *
+   * La fonction ne rend un jeton que si l'adresse et le code correspondent à
+   * ses secrets ; l'échange final passe ensuite par `verifyOtp`, c'est-à-dire
+   * par la même vérification que pour n'importe quel lecteur.
+   */
+  async function connexionRevue(saisie: string): Promise<boolean> {
+    const { data, error } = await supabase.functions.invoke('review-login', {
+      body: { email: EMAIL_REVUE, code: saisie },
+    });
+
+    if (error || !data?.token_hash) return false;
+
+    const { error: erreurSession } = await supabase.auth.verifyOtp({
+      token_hash: data.token_hash,
+      type: 'magiclink',
+    });
+
+    return !erreurSession;
+  }
+
   async function verifierCode() {
     const saisie = code.trim();
     if (saisie.length < CODE_MIN) return;
 
     setLoading(true);
+
+    if (email === EMAIL_REVUE) {
+      const ouvert = await connexionRevue(saisie);
+      setLoading(false);
+      if (!ouvert) {
+        Alert.alert('Code refusé', 'Vérifie le code saisi.');
+        setCode('');
+      }
+      return;
+    }
+
     const { error } = await supabase.auth.verifyOtp({
       email,
       token: saisie,
