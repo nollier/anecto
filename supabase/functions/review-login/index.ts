@@ -25,8 +25,15 @@ import { corsHeaders, fail, json } from './http.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-const REVIEW_EMAIL = Deno.env.get('ANECTO_REVIEW_EMAIL');
-const REVIEW_CODE = Deno.env.get('ANECTO_REVIEW_CODE');
+// Normalisées une fois pour toutes, à la lecture.
+//
+// Un secret collé dans un formulaire web emporte volontiers un espace ou un
+// retour à la ligne. Nettoyer au moment de la comparaison mais transmettre la
+// valeur brute plus loin fait passer la vérification puis échouer l'appel
+// suivant sur « invalid format » — une panne d'autant plus déroutante que le
+// code saisi, lui, était juste.
+const REVIEW_EMAIL = Deno.env.get('ANECTO_REVIEW_EMAIL')?.trim().toLowerCase();
+const REVIEW_CODE = Deno.env.get('ANECTO_REVIEW_CODE')?.trim();
 
 /** Comparaison à temps constant : sa durée ne dit rien du nombre de caractères justes. */
 function egal(a: string, b: string): boolean {
@@ -61,7 +68,7 @@ Deno.serve(async (req) => {
   const email = typeof corps.email === 'string' ? corps.email.trim().toLowerCase() : '';
   const code = typeof corps.code === 'string' ? corps.code.trim() : '';
 
-  if (!egal(email, REVIEW_EMAIL.trim().toLowerCase()) || !egal(code, REVIEW_CODE.trim())) {
+  if (!egal(email, REVIEW_EMAIL) || !egal(code, REVIEW_CODE)) {
     // Le même message et le même délai dans les deux cas : rien ne permet de
     // distinguer une adresse inconnue d'un code faux.
     await attendre(1000);
