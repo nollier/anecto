@@ -20,6 +20,21 @@ import { Anecdote, FeedbackType, Statistiques } from '../types';
 /** Le champ libre sert aux corrections comme aux propositions. */
 type SaisieLibre = 'incomplete' | 'propose' | null;
 
+/**
+ * Ce que dit la flamme.
+ *
+ * « 1 jour d'affilée » sonne comme un échec alors que c'est un début, et
+ * « Série interrompue » seul ne dit pas quoi faire : les deux cas méritent
+ * leur phrase. `affilée` est une locution invariable, elle ne s'accorde pas.
+ */
+function libelleSerie(stats: Statistiques): string {
+  if (stats.serie === 0) return 'Série interrompue · reprends aujourd\'hui';
+  if (stats.serie === 1) return '🔥 Premier jour';
+
+  const base = `🔥 ${stats.serie} jours d'affilée`;
+  return stats.serie >= stats.record ? `${base} · ton record 🎉` : base;
+}
+
 export default function HomeScreen() {
   const navigation = useNavigation<any>();
   const [anecdote, setAnecdote] = useState<Anecdote | null>(null);
@@ -82,8 +97,21 @@ export default function HomeScreen() {
     setSaisie(null);
     setTexteLibre('');
 
-    // Après l'appel ci-dessus, jamais avant : c'est lui qui inscrit la journée
-    // dans l'historique, donc qui fait passer la série de 2 à 3.
+    // L'anecdote est à l'écran : c'est ici, et nulle part ailleurs, qu'une
+    // lecture est constatée. Le cron d'envoi ne marque plus rien — c'était
+    // tout le problème de l'ancienne série, qui comptait des jours où
+    // personne n'avait ouvert l'app.
+    if (dujour) {
+      const { error: erreurLecture } = await supabase.rpc('marquer_anecdote_lue', {
+        p_anecdote_id: dujour.id,
+      });
+      // Un marquage qui échoue en silence, c'est la série qui se remet à
+      // mentir sans que personne ne le voie — la panne qu'on vient de corriger.
+      if (erreurLecture) console.error(erreurLecture);
+    }
+
+    // Après le marquage, jamais avant : c'est lui qui fait passer la série
+    // de 2 à 3 le jour même, sans quoi l'écran afficherait le compte d'hier.
     const { data: mesures } = await supabase.rpc('mes_statistiques');
     setStats((mesures as Statistiques[] | null)?.[0] ?? null);
 
@@ -104,6 +132,20 @@ export default function HomeScreen() {
 
     setLoading(false);
     setRefreshing(false);
+  }
+
+  /**
+   * Qui clique veut rattraper, pas parcourir : on ouvre l'historique
+   * directement filtré. L'onglet « Tout » reste à un geste de là.
+   */
+  function ouvrirNonLues() {
+    // `demandeLe` force la prise en compte : sans lui, un second appui sur la
+    // relance passerait le même paramètre et l'écran resterait sur l'onglet
+    // que le lecteur avait choisi entre-temps.
+    navigation.navigate('Historique', {
+      screen: 'Liste',
+      params: { filtre: 'non_lues', demandeLe: Date.now() },
+    });
   }
 
   async function submitFeedback(type: FeedbackType, comment?: string) {
@@ -216,13 +258,41 @@ export default function HomeScreen() {
       {/* La série se lit avant l'anecdote : c'est ce qu'on vient vérifier en
           ouvrant l'app, plus encore que le texte du jour. Discrète malgré
           tout — Anecto est un rituel de lecture, pas un tableau de bord. */}
-      {!!stats && stats.serie > 0 && (
-        <View style={styles.serieRow}>
-          <Text style={styles.serie}>
-            🔥 {stats.serie} jour{stats.serie > 1 ? 's' : ''} d'affilée
-          </Text>
-          {stats.record > stats.serie && (
-            <Text style={styles.record}>record {stats.record}</Text>
+      {!!stats && (stats.serie > 0 || stats.total_lues > 0) && (
+        <View style={styles.serieBloc}>
+          <View style={styles.serieRow}>
+            <Text style={[styles.serie, stats.serie === 0 && styles.serieCassee]}>
+              {libelleSerie(stats)}
+            </Text>
+            {stats.serie > 0 && stats.record > stats.serie && (
+              <Text style={styles.record}>record {stats.record}</Text>
+            )}
+          </View>
+
+          {/* La relance n'existe que s'il reste quelque chose à rattraper.
+              Sans retard, l'écran est exactement celui d'avant. */}
+          {stats.non_lues > 0 ? (
+            <TouchableOpacity
+              style={styles.relance}
+              accessibilityRole="button"
+              onPress={ouvrirNonLues}
+            >
+              <Text style={styles.relanceTexte}>
+                {stats.non_lues} anecdote{stats.non_lues > 1 ? 's' : ''} t'attend
+                {stats.non_lues > 1 ? 'ent' : ''}
+              </Text>
+              <Text style={styles.relanceChevron}>›</Text>
+            </TouchableOpacity>
+          ) : (
+            stats.total_lues > 0 && (
+              <Text style={styles.ajour}>
+                <Text style={styles.ajourFort}>
+                  {stats.total_lues} anecdote{stats.total_lues > 1 ? 's' : ''} lue
+                  {stats.total_lues > 1 ? 's' : ''}
+                </Text>
+                , aucune oubliée.
+              </Text>
+            )
           )}
         </View>
       )}
@@ -305,9 +375,27 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
   content: { padding: 20, paddingTop: 60, paddingBottom: 40 },
   center: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
-  serieRow: { flexDirection: 'row', alignItems: 'baseline', gap: 10, marginBottom: 14 },
-  serie: { fontSize: 14, fontWeight: '700', color: '#b3402f' },
+  serieBloc: { marginBottom: 14, alignItems: 'flex-start' },
+  serieRow: { flexDirection: 'row', alignItems: 'baseline', gap: 10, alignSelf: 'stretch' },
+  serie: { flex: 1, fontSize: 14, fontWeight: '700', color: '#b3402f' },
+  // Une série cassée n'est pas une alerte : elle perd la couleur, pas la place.
+  serieCassee: { color: '#888' },
   record: { fontSize: 12, color: '#aaa' },
+  relance: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: '#fbeeeb',
+  },
+  relanceTexte: { fontSize: 13, fontWeight: '600', color: '#b3402f' },
+  relanceChevron: { fontSize: 15, lineHeight: 15, color: '#b3402f' },
+  // Un état permanent doit être discret : une ligne grise, pas un encadré.
+  ajour: { marginTop: 8, fontSize: 13, color: '#888' },
+  ajourFort: { color: '#1a1a1a', fontWeight: '600' },
   eyebrow: { fontSize: 13, color: '#888', marginBottom: 8, fontWeight: '600' },
   // Une accroche fait une à deux lignes de plus qu'un titre de quatre mots :
   // 24 points la faisaient déborder sur quatre lignes.
