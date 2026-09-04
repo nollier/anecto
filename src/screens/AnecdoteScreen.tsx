@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, Linking } from 'react-native';
 import { useRoute, RouteProp } from '@react-navigation/native';
+import { supabase } from '../lib/supabase';
 import { Anecdote } from '../types';
 
 /**
@@ -15,6 +16,18 @@ type ParamsAnecdote = { Anecdote: { anecdote: Anecdote; luLe?: string } };
 export default function AnecdoteScreen() {
   const { params } = useRoute<RouteProp<ParamsAnecdote, 'Anecdote'>>();
   const { anecdote, luLe } = params;
+
+  // C'est ici que le rattrapage se constate : ouvrir une anecdote en retard
+  // depuis l'historique la marque lue, au même titre que l'anecdote du jour
+  // sur l'accueil. L'appel est idempotent côté base, une relecture ne déplace
+  // donc pas la date et ne transforme pas une lecture du jour en rattrapage.
+  useEffect(() => {
+    supabase
+      .rpc('marquer_anecdote_lue', { p_anecdote_id: anecdote.id })
+      .then(({ error }) => {
+        if (error) console.error(error);
+      });
+  }, [anecdote.id]);
 
   function ouvrirSource() {
     if (anecdote.source_url) Linking.openURL(anecdote.source_url);

@@ -74,13 +74,22 @@ export interface Anecdote {
  * Rien n'est stocké : ces chiffres se déduisent tous de `user_anecdote_history`.
  */
 export interface Statistiques {
-  /** Jours consécutifs. Reste vivante si la dernière lecture date d'hier. */
+  /**
+   * Jours consécutifs où l'anecdote a été lue le jour même de son envoi.
+   * Reste vivante si la dernière lecture date d'hier — la journée en cours
+   * est une occasion de la poursuivre, pas une rupture déjà consommée.
+   */
   serie: number;
   record: number;
+  /** Anecdotes distinctes réellement ouvertes, toutes villes confondues. */
   total_lues: number;
   ville: string | null;
   lues_ville: number;
   total_ville: number;
+  /** Reçues et jamais ouvertes, journée en cours exclue : le retard. */
+  non_lues: number;
+  /** Lues après leur jour d'envoi. Ne répare pas la série, complète le carnet. */
+  rattrapees: number;
 }
 
 export interface HistoryEntry {
@@ -88,5 +97,9 @@ export interface HistoryEntry {
   user_id: string;
   anecdote_id: string;
   sent_at: string;
+  /** Jour d'envoi dans le fuseau du lecteur, au format AAAA-MM-JJ. */
+  sent_on: string | null;
+  /** Null tant que l'anecdote n'a pas été ouverte. */
+  read_at: string | null;
   anecdote?: Anecdote;
 }
