@@ -30,6 +30,8 @@ src/lib/supabase.ts                 client Supabase
 src/lib/notifications.ts            enregistrement token push Expo
 src/lib/places.ts                   client de l'autocomplétion de ville
 src/lib/partage.ts                  texte partagé et feuille de partage système
+src/lib/voix.ts                     lecture à voix haute (synthèse du téléphone)
+src/components/BoutonEcoute.tsx     la pastille d'écoute du bandeau
 src/components/CityPicker.tsx       champ ville avec suggestions Google
 src/screens/                        AuthScreen, HomeScreen, SettingsScreen, HistoryScreen
 src/types/                          types partagés (Profile, Anecdote, CityDetails…)
@@ -94,6 +96,74 @@ GitHub Pages depuis ce dépôt comme les pages légales. Une page plutôt qu'une
 fiche de magasin : on ne sait pas sur quel système est le destinataire, et la
 page se corrige sans republier l'application : les deux fiches de magasin y
 sont des liens à changer, pas une version à soumettre.
+
+## Écouter l'anecdote
+
+Une pastille au bout du bandeau de ville lit l'anecdote à voix haute :
+l'accroche, puis le corps. La voix vient du téléphone — `AVSpeechSynthesizer`
+sur iOS, `android.speech.tts.TextToSpeech` sur Android — via `expo-speech`.
+Rien ne part sur un serveur, rien ne coûte à l'usage, l'écoute fonctionne sans
+réseau.
+
+⚠️ `expo-speech` et `expo-keep-awake` sont des modules natifs : contrairement au
+partage, cette fonctionnalité ne peut pas partir en mise à jour OTA. Il faut un
+nouveau build EAS et un passage par les magasins.
+
+### Ce que la lecture ne fait pas
+
+Pas de lecture en arrière-plan, pas de contrôles sur l'écran verrouillé.
+`expo-speech` n'expose ni la session audio iOS (`AVAudioSession` en catégorie
+lecture, plus `UIBackgroundModes: audio`) ni le service au premier plan
+Android : sans eux, le système coupe la voix dès que l'app passe derrière. La
+seule chose faisable à ce niveau est d'empêcher l'écran de se verrouiller
+pendant la lecture, ce que fait `expo-keep-awake`, dont la veille est relâchée
+à l'arrêt, à la fin, au changement d'écran et au passage en arrière-plan.
+
+Pour une vraie écoute en arrière-plan, il faudrait pré-générer un fichier audio
+par anecdote (synthèse serveur à la validation, stockage Supabase) et le lire
+avec un lecteur de fichiers. C'est un autre chantier, avec un coût de synthèse
+récurrent.
+
+Deux autres limites, structurelles :
+
+- `Speech.pause()` et `Speech.resume()` n'existent pas sur Android. Le second
+  appui y **arrête** la lecture au lieu de la suspendre, et le bouton change de
+  signe en conséquence (`■` au lieu de `❚❚`).
+- Android refuse tout énoncé de plus de 4 000 caractères, sans message. Le
+  texte est donc découpé en énoncés mis en file, sur des fins de phrase.
+
+### Savoir si l'écoute prend
+
+`user_anecdote_history.ecoutee_le` se remplit au démarrage de la voix, comme
+`read_at` se remplit à l'affichage (migration
+`20260905100000_ecoute_vocale.sql`). Aucune donnée nouvelle n'est collectée sur
+personne : c'est une colonne de plus sur une ligne qui existait déjà.
+
+La part d'écoute, sur trente jours :
+
+```sql
+select count(*) filter (where read_at is not null)      as lues,
+       count(*) filter (where ecoutee_le is not null)    as ecoutees,
+       round(100.0 * count(*) filter (where ecoutee_le is not null)
+             / nullif(count(*) filter (where read_at is not null), 0), 1) as part_ecoutee
+  from public.user_anecdote_history
+ where sent_on >= current_date - 30;
+```
+
+Et le nombre de lecteurs qui ont essayé au moins une fois, puis qui y sont
+revenus — c'est le second chiffre qui compte, le premier ne mesure que la
+curiosité :
+
+```sql
+select count(*) as ont_essaye,
+       count(*) filter (where ecoutes > 1) as sont_revenus
+  from (
+    select user_id, count(*) filter (where ecoutee_le is not null) as ecoutes
+      from public.user_anecdote_history
+     group by user_id
+  ) par_lecteur
+ where ecoutes > 0;
+```
 
 ## Backend Supabase (projet `anecto`)
 
