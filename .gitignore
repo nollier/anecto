@@ -23,3 +23,8 @@ google-play-*.json
 web-build/
 .env
 .env.local
+
+# Cache local de la CLI Supabase : versions consultées, projet lié, URL du
+# pooler. Réécrit à chaque commande, propre à chaque poste, jamais du code.
+# `supabase link --project-ref <ref>` le régénère sur un clone neuf.
+supabase/.temp/
