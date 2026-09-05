@@ -29,6 +29,7 @@ App.tsx                            point d'entrée, auth guard + navigation
 src/lib/supabase.ts                 client Supabase
 src/lib/notifications.ts            enregistrement token push Expo
 src/lib/places.ts                   client de l'autocomplétion de ville
+src/lib/partage.ts                  texte partagé et feuille de partage système
 src/components/CityPicker.tsx       champ ville avec suggestions Google
 src/screens/                        AuthScreen, HomeScreen, SettingsScreen, HistoryScreen
 src/types/                          types partagés (Profile, Anecdote, CityDetails…)
@@ -37,6 +38,7 @@ supabase/functions/generate-anecdote/  Wikipédia + Mérimée + DeepSeek → `dr
 supabase/functions/send-daily-notifications/  envoi push, appelé par pg_cron
 supabase/functions/delete-account/  suppression de compte (clé de service)
 supabase/migrations/                schéma
+telecharger/index.html              page d'atterrissage des liens partagés
 ```
 
 ## Connexion
@@ -70,6 +72,28 @@ SMTP : avec Gmail, `smtp.gmail.com` sur le port 465, l'adresse d'expéditeur
 sans les espaces que Google affiche. Gmail plafonne à ~500 envois par jour et
 sans SPF/DKIM alignés — pour la production, un service transactionnel avec ton
 propre domaine.
+
+## Partage d'une anecdote
+
+Le bouton « Partager » de l'accueil et de l'historique ouvre la feuille de
+partage du système avec **l'anecdote entière** en texte brut : ville, accroche,
+corps, source cliquable, puis une invitation à créer un compte.
+
+L'anecdote n'est pas tronquée. Une accroche coupée en deux ne se lit pas et
+convertit mal ; ce qui protège le corpus, c'est que le partage reste unitaire —
+une anecdote à la fois, choisie par un lecteur — là où rouvrir la lecture en
+base à `anon` l'exposerait en bloc, ce que la migration
+`20260819060000_durcissement_avant_publication.sql` a précisément fermé.
+
+Tout le contenu tient dans `message`, jamais dans `url` : sur iOS, un `url`
+fourni à côté fait que certaines destinations ne reprennent que lui et jettent
+le texte.
+
+Le lien de l'invitation pointe vers `telecharger/index.html`, publiée par
+GitHub Pages depuis ce dépôt comme les pages légales. Une page plutôt qu'une
+fiche de magasin : on ne sait pas sur quel système est le destinataire, et la
+page se corrige sans republier l'application : les deux fiches de magasin y
+sont des liens à changer, pas une version à soumettre.
 
 ## Backend Supabase (projet `anecto`)
 
