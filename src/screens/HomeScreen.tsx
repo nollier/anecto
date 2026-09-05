@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
+import BoutonEcoute from '../components/BoutonEcoute';
 import { partagerAnecdote } from '../lib/partage';
 import { Anecdote, FeedbackType, Statistiques } from '../types';
 
@@ -298,10 +299,15 @@ export default function HomeScreen() {
         </View>
       )}
 
-      <Text style={styles.eyebrow}>
-        📖 Anecdote du jour · {anecdote.city}
-        {anecdote.period ? ` · ${anecdote.period}` : ''}
-      </Text>
+      {/* La pastille d'écoute se pose au bout du bandeau : elle ne prend
+          aucune ligne, et l'accroche démarre à la hauteur qu'elle avait. */}
+      <View style={styles.bandeau}>
+        <Text style={[styles.eyebrow, styles.bandeauTexte]}>
+          📖 Anecdote du jour · {anecdote.city}
+          {anecdote.period ? ` · ${anecdote.period}` : ''}
+        </Text>
+        <BoutonEcoute anecdote={anecdote} />
+      </View>
       {/* L'accroche porte le titre à l'écran. `title` reste l'étiquette courte
           de la notification — les anecdotes générées avant l'accroche n'en ont
           pas, d'où le repli. */}
@@ -408,6 +414,10 @@ const styles = StyleSheet.create({
   ajour: { marginTop: 8, fontSize: 13, color: '#888' },
   ajourFort: { color: '#1a1a1a', fontWeight: '600' },
   eyebrow: { fontSize: 13, color: '#888', marginBottom: 8, fontWeight: '600' },
+  bandeau: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
+  // Le bandeau porte désormais la marge basse : la laisser aussi sur le texte
+  // décalerait la pastille d'autant vers le haut.
+  bandeauTexte: { flex: 1, marginBottom: 0 },
   // Une accroche fait une à deux lignes de plus qu'un titre de quatre mots :
   // 24 points la faisaient déborder sur quatre lignes.
   title: { fontSize: 21, fontWeight: '700', lineHeight: 28, marginBottom: 18, color: '#1a1a1a' },
