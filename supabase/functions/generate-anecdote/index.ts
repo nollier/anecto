@@ -103,10 +103,10 @@ FORME ATTENDUE
 
 COMMENT RACONTER
 
-Premier paragraphe : pars d'un geste ordinaire d'aujourd'hui — ce qu'on longe, ce qu'on traverse, ce devant quoi on passe sans le voir — puis installe l'étonnement.
+Premier paragraphe : pars d'un geste ordinaire d'aujourd'hui — ce qu'on longe, ce qu'on traverse, ce devant quoi on passe sans le voir — puis installe l'étonnement. Ce geste doit rester dans ce que le dossier décrit : le bâtiment qu'il mentionne, la rue qu'il nomme, l'objet qu'il situe.
 Interdit d'ouvrir par une situation géographique générique. « Au cœur du centre historique de X », « Située en Bretagne, la ville de X », « Dans le centre-ville de X » : ces formules sont bannies. On commence par quelqu'un qui fait quelque chose, ou par l'objet lui-même.
 Paragraphes du milieu : déroule l'histoire dans l'ordre, avec ses dates, ses noms, ses chiffres. Ce sont les détails précis qui font qu'on retient — une dimension, un coût, le nom de l'ingénieur, la durée d'un chantier, le nombre de pièces. Ne résume pas ce que le dossier détaille : si tu connais la somme exacte, écris-la ; si tu connais le jour, écris le jour. Un récit qui dit « au XVIIIe siècle » quand le dossier dit « le 15 septembre 1763 » a perdu ce qui faisait son intérêt.
-Dernier paragraphe : ce qu'il en reste aujourd'hui. La dernière phrase apporte un renversement, ou un détail concret qu'on n'attendait pas — jamais une conclusion générale.
+Dernier paragraphe : ce qu'il en reste aujourd'hui. La dernière phrase apporte un renversement, ou un détail concret qu'on n'attendait pas — pris dans le dossier, jamais ajouté par toi, et jamais une conclusion générale.
 
 Présent de narration pour la colonne vertébrale du récit, y compris pour les événements anciens : « les cloches sonnent », jamais « les cloches se mirent à sonner ». Pas de passé simple, pas d'imparfait narratif.
 Les autres temps restent permis pour ce qui encadre ce récit : ce qui le précède, ce qu'il advient ensuite, ce qu'il en reste. « Il ne repartira plus jamais », « la maison a été détruite en 1944 », « la boucle était bouclée » sont justes à leur place. Le présent est la règle du déroulé, pas une contrainte sur la phrase finale.
@@ -116,6 +116,8 @@ Aucune morale, aucun « saviez-vous que », aucune question rhétorique, aucune 
 RÈGLES ABSOLUES
 
 - N'écris aucune date, aucun chiffre, aucun nom propre qui ne figure pas dans le dossier. Cela vaut pour l'accroche autant que pour le corps.
+- L'interdiction couvre aussi ce qui n'est ni date, ni chiffre, ni nom : la situation d'un lieu, une comparaison, une appréciation. Écrire « sur les hauteurs de la ville » quand le dossier dit « au pied du coteau » est une faute au même titre qu'une date inventée. Écrire « quinze mètres de plus que la cathédrale » suppose que le dossier donne les deux longueurs, pas une seule. Dans le doute, écris ce que le dossier dit, avec ses mots.
+- L'accroche et la dernière phrase obéissent aux mêmes règles que le reste — et c'est là qu'on les enfreint. Le geste d'aujourd'hui comme le renversement final se prennent dans le dossier, jamais dans ce que tu crois savoir du lieu. Si le dossier ne fournit pas de quoi les écrire, écris-en une plus plate plutôt qu'une plus belle : une accroche sans effet est réparable, une accroche fausse fait rejeter tout le texte.
 - Recopie dans "citations" les phrases exactes du dossier qui établissent ton récit — caractère pour caractère, sans reformuler, sans couper un mot, sans corriger la ponctuation. Elles sont comparées automatiquement au dossier : une citation approximative fait rejeter tout le travail.
 - Il te faut au moins trois citations distinctes, couvrant les affirmations principales du récit.
 - Si le dossier ne permet pas d'écrire 320 mots sans rien inventer, renvoie trouve = false. C'est une réponse acceptable et attendue : mieux vaut rien qu'un récit brodé.
