@@ -18,7 +18,9 @@
       "supportsTablet": false,
       "bundleIdentifier": "fr.anecto.app",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "CFBundleDevelopmentRegion": "fr",
+        "CFBundleLocalizations": ["fr"]
       }
     },
     "android": {
@@ -35,6 +37,9 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "locales": {
+      "fr": "./locales/fr.json"
     },
     "plugins": [
       [

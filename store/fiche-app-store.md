@@ -11,8 +11,17 @@ Identifiant Apple : `6804257118`. Identifiant de lot : `fr.anecto.app`.
 ## Nom (30 caractères max)
 
 ```
-Anecto
+Anecto - Anecdotes locales
 ```
+
+*26 caractères.* Le nom sert deux choses à la fois : il se lit, et Apple
+l'indexe. D'où le suffixe — mais il doit apporter des mots que le sous-titre
+n'a pas, sinon les deux lignes les plus précieuses de la fiche disent la même
+chose et le référencement n'y gagne rien.
+
+Le nom du dépôt et celui affiché sous l'icône restent « Anecto » : cette
+étiquette vient de `app.json`, pas de la fiche. Le suffixe ne se voit que dans
+la recherche et sur la page de l'app, et il y est souvent tronqué.
 
 ## Sous-titre (30 caractères max)
 
@@ -36,17 +45,31 @@ Ta ville a une histoire
 ```
 *23 caractères. Plus large, moins précis sur ce qu'on reçoit.*
 
+## Texte promotionnel (170 caractères max)
+
+À ne pas confondre avec le sous-titre : ce champ s'affiche **au-dessus** de la
+description, et c'est le seul texte de la fiche modifiable sans soumettre une
+nouvelle version. C'est donc là que vit l'actualité de l'app.
+
+```
+Une anecdote vraie sur ta ville chaque jour, sourcée et vérifiable. Nouveau : tu peux partager l'anecdote entière à qui tu veux, il la lit sans compte ni installation.
+```
+
+*167 caractères.*
+
 ## Mots-clés (100 caractères max)
 
 Séparés par des virgules, sans espace : chaque espace consomme un caractère
-pour rien. Inutile d'y remettre « Anecto » ni les mots du sous-titre, Apple les
-indexe déjà.
+pour rien. Apple indexe déjà le nom et le sous-titre : « anecdotes », « locales »,
+« histoire » et « ville » y sont, les remettre ici serait racheter ce qu'on
+possède.
 
 ```
-histoire,anecdote,ville,patrimoine,culture,monuments,archives,quotidien,decouverte,memoire,locale
+patrimoine,culture,monuments,archives,quotidien,decouverte,memoire,france,secrets,insolite,balade
 ```
 
-*97 caractères.*
+*97 caractères. Sans accents : ils comptent pour un caractère comme les autres,
+et la recherche d'Apple les ignore de toute façon.*
 
 ---
 
@@ -157,7 +180,16 @@ d'être certain que tout le monde lit le même texte.
 
 | Champ | Valeur |
 |---|---|
+| URL de l'assistance | `https://nollier.github.io/anecto/telecharger/` |
+| URL marketing | à laisser vide |
 | Politique de confidentialité | `https://nollier.github.io/anecto/legal/politique-confidentialite.html` |
 | Suppression de compte | `https://nollier.github.io/anecto/legal/suppression-compte.html` |
-| Page de téléchargement | `https://nollier.github.io/anecto/telecharger/` |
-| Assistance | `anecto@mail.fr` |
+| Assistance par email | `anecto@mail.fr` |
+
+L'URL d'assistance portait la politique de confidentialité, qui n'explique pas
+comment obtenir de l'aide. La page de téléchargement, elle, présente l'app et
+donne l'adresse de contact en pied de page : c'est ce qu'Apple attend derrière
+ce champ, et un examinateur clique dessus.
+
+L'URL marketing peut rester vide tant qu'elle pointerait sur la même page :
+deux liens identiques n'apportent rien à personne.

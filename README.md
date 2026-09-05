@@ -123,6 +123,21 @@ L'opération ne peut pas se faire depuis le client : RLS n'autorise chacun à
 autres. D'où une fonction `security definer`, et un `upsert` de profil qui ne
 porte plus la colonne.
 
+## Langue de l'application
+
+La fiche App Store affichait « LANGUE : EN, Anglais » alors que tous ses textes
+sont en français. Cette ligne ne décrit pas la fiche mais **le binaire** : une
+app Expo déclare `en` comme langue de développement tant qu'on ne lui dit rien,
+et l'App Store lit cette valeur.
+
+Trois déclarations dans `app.json` la corrigent : `CFBundleDevelopmentRegion` et
+`CFBundleLocalizations` dans `ios.infoPlist`, et surtout `locales`, qui fait
+naître un dossier `fr.lproj` dans le bundle — c'est lui que l'App Store
+inspecte pour lister les langues d'une application.
+
+⚠️ Ces trois valeurs vivent dans le binaire : les changer suppose **un nouveau
+build**, une mise à jour OTA n'y touche pas.
+
 ## Backend Supabase (projet `anecto`)
 
 Tables : `profiles`, `anecdotes`, `user_anecdote_history`, `feedback`.
