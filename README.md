@@ -2,6 +2,16 @@
 
 Une anecdote vraie et vérifiée sur ta ville, chaque jour, à l'heure de ton choix.
 
+Les anecdotes sont **rédigées par une IA à partir de sources vérifiables** —
+Wikipédia, base Mérimée du ministère de la Culture — et jamais de mémoire. Le
+modèle ne dispose que d'un dossier documentaire, il doit recopier mot pour mot
+les phrases sur lesquelles il s'appuie, et ces citations sont recherchées dans
+la source par comparaison de chaînes : une citation introuvable fait rejeter
+l'anecdote. C'est ce qui exclut l'hallucination, plus sûrement qu'une relecture
+ne le ferait. La source reste affichée et cliquable dans l'application, sous
+chaque anecdote : le lecteur peut toujours remonter au texte d'origine et
+vérifier lui-même.
+
 ## Stack
 
 - React Native + Expo (TypeScript)
@@ -222,10 +232,10 @@ L'étape 3 est le vrai garde-fou : elle attrape l'erreur la plus dangereuse du
 modèle, le récit plausible avec une date fabriquée. La normalisation tolère les
 accents perdus et les apostrophes typographiques, pas l'invention.
 
-L'anecdote est stockée avec l'URL Wikipédia réelle, et **toujours en
-`status = 'draft'`** : un extrait d'encyclopédie n'est pas une validation
-éditoriale. Un index unique sur `(city_place_id, lower(title))` empêche les
-doublons.
+L'anecdote est stockée avec l'URL réelle de ses sources, et **toujours en
+`status = 'draft'`** : c'est la barrière de publication, décrite plus bas, qui
+décide ensuite de la servir ou de la laisser en attente. Un index unique sur
+`(city_place_id, lower(title))` empêche les doublons.
 
 La réponse de la fonction renvoie un champ `dossier` listant chaque document
 retenu, son origine et son volume : c'est là qu'on voit ce qui a réellement
@@ -298,8 +308,10 @@ pour le lendemain.
 
 ### Relecture — `anecdotes_a_valider`
 
-La génération n'écrit qu'en `draft` ; rien n'atteint un lecteur avant relecture
-humaine. La file se lit dans le Table Editor de Supabase :
+La génération n'écrit qu'en `draft`. Ce qui franchit les trois conditions de la
+barrière ci-dessus est publié sans intervention ; **tout le reste attend une
+relecture humaine** — un doute à la vérification, une confiance moyenne ou
+faible, et la file se remplit. Elle se lit dans le Table Editor de Supabase :
 
 ```sql
 select * from anecdotes_a_valider;
