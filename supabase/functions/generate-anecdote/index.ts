@@ -454,6 +454,12 @@ Deno.serve(async (req) => {
         source_url: sources[0].url,
         sources,
         confidence: verification.confiance ?? 'faible',
+        // Le verdict a sa colonne depuis que la publication peut se faire sans
+        // relecture : `valider_automatiquement` n'accepte qu'un `confirme` en
+        // confiance haute, et lire cette condition dans une phrase française
+        // de `verification_notes` reviendrait à publier au gré d'une
+        // reformulation du prompt.
+        verdict: verification.verdict,
         verification_notes: notes,
         generated_by: `deepseek:${DEEPSEEK_MODEL} + ${[...new Set(docs.map((d) => d.origine))].join('+')}`,
         status: 'draft',

@@ -37,6 +37,7 @@ supabase/functions/city-search/     proxy Google Places (clé côté serveur)
 supabase/functions/generate-anecdote/  Wikipédia + Mérimée + DeepSeek → `draft`
 supabase/functions/send-daily-notifications/  envoi push, appelé par pg_cron
 supabase/functions/delete-account/  suppression de compte (clé de service)
+supabase/functions/rapport-quotidien/  rapport du matin par email (pg_cron)
 supabase/migrations/                schéma
 telecharger/index.html              page d'atterrissage des liens partagés
 ```
@@ -154,6 +155,7 @@ npx supabase functions deploy city-search
 npx supabase functions deploy generate-anecdote
 npx supabase functions deploy send-daily-notifications
 npx supabase functions deploy delete-account
+npx supabase functions deploy rapport-quotidien
 ```
 
 ## Tests
@@ -238,6 +240,61 @@ commune moyenne. Compter quelques dizaines d'anecdotes racontables par ville,
 tous supports confondus — le rythme quotidien suppose donc d'élargir le
 périmètre géographique quand une ville est épuisée, ou d'assumer un cycle de
 reprise.
+
+### Ouverture automatique d'une ville
+
+Demander une ville depuis l'app déclenche désormais toute la chaîne, sans
+intervention :
+
+| Étape | Quand | Quoi |
+|---|---|---|
+| `demander_ville()` | à la demande | enregistre dans `demandes_ville` |
+| `produire_villes_demandees(2, 15)` | toutes les heures, à :07 | deux villes au plus, jusqu'à 15 anecdotes chacune |
+| `valider_automatiquement(100)` | tous les quarts d'heure | publie ce qui passe la barrière |
+| `declencher_alerte_villes_pretes()` | toutes les deux heures, 8 h 30 à 20 h 30 | email « ta ville est prête » |
+
+La barrière de publication tient en trois conditions cumulées, dans
+`valider_automatiquement` :
+
+- les citations ont été retrouvées **mot pour mot** dans le dossier
+  documentaire — filtre déterministe, appliqué avant même l'insertion ;
+- le second passage de vérification rend `verdict = 'confirme'`, et non un
+  doute ;
+- il rend `confidence = 'haute'`.
+
+Tout ce qui ne coche pas les trois reste en `draft` et attend la relecture
+humaine décrite ci-dessous. Le verdict a sa propre colonne depuis cette
+bascule : le lire dans la phrase française de `verification_notes` reviendrait
+à publier au gré d'une reformulation du prompt.
+
+L'email au lecteur attend **cinq anecdotes validées** dans sa ville, pour qu'il
+n'arrive pas sur une ville qu'il épuise le soir même. Une demande de plus de
+sept jours abaisse ce seuil à une : certaines villes n'ont pas la matière
+documentaire pour en produire cinq, et attendre un seuil qui ne tombera jamais
+serait pire que de prévenir sur trois textes.
+
+Pour surveiller ce que la chaîne va produire au prochain passage :
+
+```sql
+select * from villes_a_ouvrir(15, 2);
+```
+
+### Rapport quotidien — `rapport_quotidien()`
+
+Un email chaque matin à 6 h UTC, vers `ANECTO_ALERT_EMAIL` : lecteurs de la
+veille rapportés au nombre de profils, anecdotes lues, lecteurs actifs sur sept
+jours, nouveaux comptes, état du stock, brouillons en attente, demandes de
+ville non servies.
+
+Il porte surtout une alerte : **les lecteurs à trois anecdotes ou moins de la
+fin de leur ville**, en comptant les anecdotes validées qui ne leur ont jamais
+été servies. C'est la seule métrique qui prévient d'un départ avant qu'il ait
+lieu — un lecteur qui tombe sur « Rien à lire aujourd'hui » ne revient pas le
+lendemain. Le sujet de l'email porte le compte, l'ouvrir n'est nécessaire que
+les jours où quelque chose cloche.
+
+La journée se juge à Paris et non en UTC, sinon les lectures de 23 h compteraient
+pour le lendemain.
 
 ### Relecture — `anecdotes_a_valider`
 
