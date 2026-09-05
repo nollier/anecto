@@ -1,0 +1,199 @@
+<title>Anecto — l'anecdote du jour sur ta ville</title>
+<meta name="description" content="Quelqu'un vous a partagé une anecdote Anecto. Créez votre compte gratuit pour recevoir chaque jour une anecdote vraie et vérifiée sur votre ville.">
+<meta property="og:title" content="Anecto — une anecdote vraie sur ta ville, chaque jour">
+<meta property="og:description" content="Une anecdote par jour, sourcée et vérifiable. Compte gratuit, sans publicité.">
+<meta property="og:type" content="website">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Public+Sans:wght@400;500;700&display=swap">
+
+<style>
+  :root {
+    --papier: #ffffff;
+    --encre: #161514;
+    --brique: #a8402f;
+    --grave: #6d635e;
+    --filet: #e6e1db;
+    --surface: #faf8f6;
+    --mesure: 34rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --papier: #131211;
+      --encre: #ece8e3;
+      --brique: #e08268;
+      --grave: #a09690;
+      --filet: #2c2926;
+      --surface: #1b1917;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --papier: #131211;
+    --encre: #ece8e3;
+    --brique: #e08268;
+    --grave: #a09690;
+    --filet: #2c2926;
+    --surface: #1b1917;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--papier);
+    color: var(--encre);
+    font-family: 'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 16px;
+    line-height: 1.65;
+    margin: 0;
+    padding: clamp(2rem, 6vw, 5rem) 1.25rem 6rem;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page { max-width: var(--mesure); margin: 0 auto; display: flex; flex-direction: column; gap: 3rem; }
+
+  .eyebrow {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--brique);
+    margin: 0;
+  }
+
+  header { display: flex; flex-direction: column; gap: 0.75rem; }
+
+  h1 {
+    font-family: 'Instrument Serif', Georgia, serif;
+    font-weight: 400;
+    font-size: clamp(2.5rem, 8vw, 3.75rem);
+    line-height: 1.02;
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .chapo { color: var(--grave); margin: 0; font-size: 1.0625rem; }
+
+  .essentiel {
+    background: var(--surface);
+    border-left: 3px solid var(--brique);
+    padding: 1.5rem 1.5rem 1.5rem 1.375rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .essentiel h2 { font-size: 0.6875rem; letter-spacing: 0.14em; text-transform: uppercase; margin: 0; color: var(--brique); font-weight: 700; }
+  .essentiel ul { margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.5rem; }
+
+  section { display: flex; flex-direction: column; gap: 1rem; }
+
+  h2.titre {
+    font-family: 'Instrument Serif', Georgia, serif;
+    font-weight: 400;
+    font-size: 1.75rem;
+    line-height: 1.15;
+    margin: 0;
+    display: flex;
+    gap: 0.75rem;
+    align-items: baseline;
+    text-wrap: balance;
+  }
+  h2.titre .num {
+    font-family: 'Public Sans', sans-serif;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--brique);
+    font-variant-numeric: tabular-nums;
+    flex: none;
+    padding-top: 0.35rem;
+  }
+
+  p, li { margin: 0; }
+  section p + p { margin-top: -0.25rem; }
+  ul.corps { margin: 0; padding-left: 1.15rem; display: flex; flex-direction: column; gap: 0.5rem; }
+
+  a { color: var(--brique); text-underline-offset: 0.15em; }
+  a:focus-visible { outline: 2px solid var(--brique); outline-offset: 3px; border-radius: 2px; }
+
+  .magasins { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+
+  .magasin {
+    flex: 1 1 12rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.9rem 1.1rem;
+    border: 1px solid var(--filet);
+    border-radius: 12px;
+    background: var(--surface);
+    color: var(--encre);
+    text-decoration: none;
+    transition: border-color 0.15s ease;
+  }
+  .magasin:hover { border-color: var(--brique); }
+  .magasin .quoi { font-size: 0.6875rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--grave); font-weight: 700; }
+  .magasin .ou { font-weight: 700; font-size: 1.0625rem; }
+
+  footer {
+    border-top: 1px solid var(--filet);
+    padding-top: 1.5rem;
+    color: var(--grave);
+    font-size: 0.8125rem;
+  }
+</style>
+
+<div class="page">
+
+  <header>
+    <p class="eyebrow">Anecto</p>
+    <h1>L'anecdote qu'on vient de vous envoyer vient d'ici</h1>
+    <p class="chapo">Anecto envoie chaque jour une anecdote vraie et vérifiée sur votre ville. Une seule, à l'heure que vous choisissez. Le compte est gratuit, et c'est lui qui garde le fil de ce que vous avez lu.</p>
+  </header>
+
+  <div class="magasins">
+    <!-- Le lien Play est stable : il se déduit du nom de paquet. Le lien App
+         Store passe par la recherche tant que l'identifiant numérique n'est pas
+         attribué — il ne l'est qu'à la première validation d'Apple. À remplacer
+         alors par https://apps.apple.com/fr/app/anecto/id<identifiant>. -->
+    <a class="magasin" href="https://play.google.com/store/apps/details?id=fr.anecto.app">
+      <span class="quoi">Android</span>
+      <span class="ou">Google Play</span>
+    </a>
+    <a class="magasin" href="https://apps.apple.com/fr/search?term=anecto">
+      <span class="quoi">iPhone</span>
+      <span class="ou">App Store</span>
+    </a>
+  </div>
+
+  <div class="essentiel">
+    <h2>Pourquoi un compte</h2>
+    <ul>
+      <li>Il retient <strong>votre ville et votre heure</strong> : sans lui, rien à vous envoyer.</li>
+      <li>Il garde <strong>l'historique</strong> de vos anecdotes, relisibles à tout moment.</li>
+      <li>Il compte <strong>votre série</strong>, les jours d'affilée où vous avez lu la vôtre.</li>
+      <li>Une adresse e-mail suffit. Pas de mot de passe : un code à six chiffres reçu par e-mail.</li>
+    </ul>
+  </div>
+
+  <section>
+    <h2 class="titre"><span class="num">01</span>Ce que vous recevez</h2>
+    <p>Une notification par jour, à l'heure que vous fixez. Vous ouvrez, vous lisez, c'est fini. Pas de fil infini, pas de recommandations, rien à faire défiler. L'application a une chose à vous dire par jour, elle vous la dit, et elle vous laisse tranquille.</p>
+  </section>
+
+  <section>
+    <h2 class="titre"><span class="num">02</span>Vraie, et vérifiable</h2>
+    <p>Chaque anecdote cite sa source, et le lien est dans l'application, comme dans le message que vous venez de recevoir. Les textes s'appuient sur des sources publiques — encyclopédies, archives, base Mérimée du ministère de la Culture — et passent par une relecture avant publication.</p>
+  </section>
+
+  <section>
+    <h2 class="titre"><span class="num">03</span>Votre ville, ou une autre</h2>
+    <p>L'application ne propose que les villes dont le contenu est prêt : pas de ville vide, pas de « revenez plus tard ». Si la vôtre n'y est pas encore, vous pouvez la demander en une touche et recevoir un e-mail le jour où ses anecdotes seront disponibles.</p>
+  </section>
+
+  <footer>
+    <p>Anecto — édité par Nicolas Ollier. Gratuit, sans publicité. Voir la <a href="../legal/politique-confidentialite.html">politique de confidentialité</a> et la page <a href="../legal/suppression-compte.html">suppression de compte</a>. Une question : <a href="mailto:anecto@mail.fr">anecto@mail.fr</a>.</p>
+  </footer>
+
+</div>
