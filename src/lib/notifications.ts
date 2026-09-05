@@ -19,20 +19,33 @@ Notifications.setNotificationHandler({
  *
  * Un jeton Expo change — réinstallation, restauration de sauvegarde, mise à
  * jour système. S'il n'était rafraîchi qu'en rouvrant les Réglages, les
- * notifications s'arrêteraient en silence. On met à jour plutôt qu'on upsert :
- * `profiles.city` est NOT NULL, un upsert créerait une ligne invalide pour un
- * compte qui n'a pas encore choisi sa ville.
+ * notifications s'arrêteraient en silence.
+ *
+ * L'écriture passe par une fonction plutôt que par un `update` : le jeton
+ * identifie un téléphone, pas une personne, et l'attribuer suppose de le
+ * retirer aux comptes qui l'avaient avant — ce que RLS interdit au client,
+ * puisque chacun ne peut écrire que sa propre ligne. Sans ce retrait, deux
+ * comptes utilisés sur le même appareil y envoient chacun leur notification,
+ * à leur heure et pour leur ville.
  */
-export async function syncPushToken(userId: string): Promise<void> {
+export async function syncPushToken(): Promise<void> {
   const token = await registerForPushNotificationsAsync();
   if (!token) return;
 
-  const { error } = await supabase
-    .from('profiles')
-    .update({ expo_push_token: token, updated_at: new Date().toISOString() })
-    .eq('id', userId);
-
+  const { error } = await supabase.rpc('enregistrer_jeton_push', { p_token: token });
   if (error) console.warn('Jeton push non enregistré', error.message);
+}
+
+/**
+ * Rend le jeton au moment de se déconnecter.
+ *
+ * Sans ça, un compte dont personne n'est plus connecté continue de faire
+ * sonner le téléphone — jusqu'à ce qu'un autre compte réclame le jeton, ce qui
+ * peut ne jamais arriver.
+ */
+export async function oublierJetonPush(): Promise<void> {
+  const { error } = await supabase.rpc('oublier_jeton_push');
+  if (error) console.warn('Jeton push non retiré', error.message);
 }
 
 /** Valeur laissée par le gabarit du projet tant que `eas init` n'a pas tourné. */

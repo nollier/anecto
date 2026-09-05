@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase } from '../lib/supabase';
-import { registerForPushNotificationsAsync } from '../lib/notifications';
+import { oublierJetonPush, registerForPushNotificationsAsync } from '../lib/notifications';
 import { deviceTimezone } from '../lib/places';
 import CityPicker from '../components/CityPicker';
 import { POLITIQUE_CONFIDENTIALITE } from '../lib/legal';
@@ -82,16 +82,24 @@ export default function SettingsScreen() {
         city_place_id: city.place_id,
         timezone: deviceTimezone(),
         notification_hour: `${hh}:${mm}:00`,
-        // Absent du payload quand il n'y a pas de jeton : l'omettre préserve
-        // celui déjà en base, alors qu'un null l'effacerait — un test depuis
-        // Expo Go couperait sinon les notifications d'un vrai build.
-        ...(pushToken ? { expo_push_token: pushToken } : {}),
         updated_at: new Date().toISOString(),
       });
 
       if (error) {
         Alert.alert('Erreur', error.message);
         return;
+      }
+
+      // Après l'enregistrement du profil, et jamais dans le même payload : la
+      // fonction retire d'abord le jeton aux autres comptes de cet appareil,
+      // ce qu'un upsert ne peut pas faire, et elle a besoin que la ligne
+      // existe. Sans jeton — Expo Go, permission refusée — on ne touche à
+      // rien : celui déjà en base doit survivre à un test depuis Expo Go.
+      if (pushToken) {
+        const { error: erreurJeton } = await supabase.rpc('enregistrer_jeton_push', {
+          p_token: pushToken,
+        });
+        if (erreurJeton) console.warn('Jeton push non enregistré', erreurJeton.message);
       }
 
       setLegacyCity(null);
@@ -109,6 +117,10 @@ export default function SettingsScreen() {
   }
 
   async function seDeconnecter() {
+    // Avant la déconnexion : après, il n'y a plus de session pour autoriser
+    // l'appel, et le compte continuerait de faire sonner ce téléphone.
+    await oublierJetonPush();
+
     const { error } = await supabase.auth.signOut();
     if (error) Alert.alert('Erreur', error.message);
     // Le changement de session est capté par App.tsx, qui rebascule sur

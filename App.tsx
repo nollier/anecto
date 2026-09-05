@@ -81,7 +81,9 @@ export default function App() {
     const userId = session?.user?.id;
     if (!userId || dernierJetonSynchronise.current === userId) return;
     dernierJetonSynchronise.current = userId;
-    syncPushToken(userId);
+    // L'identité vient du jeton de session côté base, pas d'ici : `userId` ne
+    // sert plus qu'à ne pas resynchroniser deux fois la même session.
+    syncPushToken();
   }, [session]);
 
   // Un tap sur la notification doit ouvrir l'anecdote, pas l'onglet où

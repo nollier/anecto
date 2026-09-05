@@ -106,6 +106,23 @@ fiche de magasin : on ne sait pas sur quel système est le destinataire, et la
 page se corrige sans republier l'application : les deux fiches de magasin y
 sont des liens à changer, pas une version à soumettre.
 
+### Jeton push — un appareil, un compte
+
+`expo_push_token` identifie un téléphone, pas une personne. Il s'écrit par
+`enregistrer_jeton_push()`, qui **le retire d'abord à tout autre profil qui le
+portait**, et se rend par `oublier_jeton_push()` à la déconnexion.
+
+Ce n'est pas une précaution théorique : trois comptes utilisés sur le même
+téléphone en portaient le même exemplaire, et l'appareil recevait les
+notifications des trois, chacune à son heure et pour sa ville. Le cron servait
+en plus réellement l'anecdote des comptes fantômes, qui entrait dans leur
+historique et consommait leur stock pour personne.
+
+L'opération ne peut pas se faire depuis le client : RLS n'autorise chacun à
+écrire que sa propre ligne, et libérer le jeton suppose de toucher celle des
+autres. D'où une fonction `security definer`, et un `upsert` de profil qui ne
+porte plus la colonne.
+
 ## Backend Supabase (projet `anecto`)
 
 Tables : `profiles`, `anecdotes`, `user_anecdote_history`, `feedback`.
