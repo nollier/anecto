@@ -44,7 +44,9 @@ Une notification, à l'heure que tu choisis. Tu ouvres, tu lis, c'est fini. Pas 
 
 VRAIE, ET VÉRIFIABLE
 
-Chaque anecdote cite sa source, et le lien est dans l'application. Tu peux vérifier toi-même, remonter à l'article, aller plus loin si le sujet t'intéresse. Les textes s'appuient sur des sources publiques — encyclopédies, archives, travaux d'historiens — et passent par une relecture avant publication.
+Chaque anecdote cite sa source, et le lien est dans l'application. Tu peux vérifier toi-même, remonter à l'article, aller plus loin si le sujet t'intéresse.
+
+Les textes sont rédigés par une intelligence artificielle à partir de sources publiques — encyclopédies, base des monuments historiques du ministère de la Culture — et jamais de mémoire. Elle travaille sur un dossier documentaire et doit recopier mot pour mot les phrases sur lesquelles elle s'appuie ; ces citations sont ensuite recherchées dans la source, et une anecdote dont les citations sont introuvables est rejetée. C'est ce qui écarte les récits inventés.
 
 Si quelque chose te paraît faux ou incomplet, tu peux le signaler depuis l'app. Les corrections sont lues.
 
