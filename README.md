@@ -92,10 +92,8 @@ le texte.
 Le lien de l'invitation pointe vers `telecharger/index.html`, publiée par
 GitHub Pages depuis ce dépôt comme les pages légales. Une page plutôt qu'une
 fiche de magasin : on ne sait pas sur quel système est le destinataire, et la
-page se corrige sans republier l'application. ⚠️ Son bouton App Store passe
-par la recherche tant qu'Apple n'a pas attribué l'identifiant numérique — à
-remplacer par `https://apps.apple.com/fr/app/anecto/id<identifiant>` dès la
-première validation.
+page se corrige sans republier l'application : les deux fiches de magasin y
+sont des liens à changer, pas une version à soumettre.
 
 ## Backend Supabase (projet `anecto`)
 
