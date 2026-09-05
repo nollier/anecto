@@ -136,7 +136,7 @@ Deux autres limites, structurelles :
 
 `user_anecdote_history.ecoutee_le` se remplit au démarrage de la voix, comme
 `read_at` se remplit à l'affichage (migration
-`20260905100000_ecoute_vocale.sql`). Aucune donnée nouvelle n'est collectée sur
+`20260905133521_ecoute_vocale.sql`). Aucune donnée nouvelle n'est collectée sur
 personne : c'est une colonne de plus sur une ligne qui existait déjà.
 
 La part d'écoute, sur trente jours :
@@ -176,6 +176,25 @@ RLS activé sur toutes les tables. Voir migration `init_anecto_schema`.
 npx supabase link --project-ref <ref>
 npx supabase db push
 ```
+
+Une migration s'applique **par `db push`**, jamais par l'éditeur SQL du tableau
+de bord ni par un outil qui écrit directement en base. Ce qui est appliqué
+autrement s'enregistre sous son horodatage d'exécution, ou ne s'enregistre pas
+du tout : le fichier et la ligne d'historique portent alors deux versions
+différentes, et `db push` refuse de repartir avec « Remote migration versions
+not found in local migrations directory ».
+
+C'est arrivé sur onze des quinze migrations, réparé le 5 septembre 2026 :
+versions distantes réalignées sur les noms de fichiers, `produire_lot`
+enregistrée après vérification qu'elle était bien en base, et
+`20260813162503_init_anecto_schema.sql` restituée au dépôt d'où elle manquait.
+Sans ce dernier fichier, un clone ne pouvait pas reconstruire la base.
+
+Si `db push` bute à nouveau, ne lance pas le `migration repair --status
+reverted` que la CLI propose : il déclare les migrations comme non appliquées
+et le push suivant les rejoue toutes sur une base qui les contient déjà.
+Compare d'abord `supabase_migrations.schema_migrations` au contenu de ce
+dossier.
 
 ### Secrets des Edge Functions
 
