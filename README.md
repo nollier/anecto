@@ -136,7 +136,7 @@ Deux autres limites, structurelles :
 
 `user_anecdote_history.ecoutee_le` se remplit au démarrage de la voix, comme
 `read_at` se remplit à l'affichage (migration
-`20260905100000_ecoute_vocale.sql`). Aucune donnée nouvelle n'est collectée sur
+`20260905133521_ecoute_vocale.sql`). Aucune donnée nouvelle n'est collectée sur
 personne : c'est une colonne de plus sur une ligne qui existait déjà.
 
 La part d'écoute, sur trente jours :
