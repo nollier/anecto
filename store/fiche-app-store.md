@@ -11,8 +11,17 @@ Identifiant Apple : `6804257118`. Identifiant de lot : `fr.anecto.app`.
 ## Nom (30 caractères max)
 
 ```
-Anecto
+Anecto - Anecdotes locales
 ```
+
+*26 caractères.* Le nom sert deux choses à la fois : il se lit, et Apple
+l'indexe. D'où le suffixe — mais il doit apporter des mots que le sous-titre
+n'a pas, sinon les deux lignes les plus précieuses de la fiche disent la même
+chose et le référencement n'y gagne rien.
+
+Le nom du dépôt et celui affiché sous l'icône restent « Anecto » : cette
+étiquette vient de `app.json`, pas de la fiche. Le suffixe ne se voit que dans
+la recherche et sur la page de l'app, et il y est souvent tronqué.
 
 ## Sous-titre (30 caractères max)
 
@@ -51,11 +60,12 @@ Une anecdote vraie sur ta ville chaque jour, sourcée et vérifiable. Nouveau : 
 ## Mots-clés (100 caractères max)
 
 Séparés par des virgules, sans espace : chaque espace consomme un caractère
-pour rien. Apple indexe déjà le nom et le sous-titre : y remettre « histoire »
-ou « ville » gaspille quatorze caractères à racheter des mots qu'on possède.
+pour rien. Apple indexe déjà le nom et le sous-titre : « anecdotes », « locales »,
+« histoire » et « ville » y sont, les remettre ici serait racheter ce qu'on
+possède.
 
 ```
-patrimoine,anecdote,culture,monuments,archives,quotidien,decouverte,memoire,france,secrets,locale
+patrimoine,culture,monuments,archives,quotidien,decouverte,memoire,france,secrets,insolite,balade
 ```
 
 *97 caractères. Sans accents : ils comptent pour un caractère comme les autres,
