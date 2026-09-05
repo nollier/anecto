@@ -2,6 +2,16 @@
 
 Une anecdote vraie et vérifiée sur ta ville, chaque jour, à l'heure de ton choix.
 
+Les anecdotes sont **rédigées par une IA à partir de sources vérifiables** —
+Wikipédia, base Mérimée du ministère de la Culture — et jamais de mémoire. Le
+modèle ne dispose que d'un dossier documentaire, il doit recopier mot pour mot
+les phrases sur lesquelles il s'appuie, et ces citations sont recherchées dans
+la source par comparaison de chaînes : une citation introuvable fait rejeter
+l'anecdote. C'est ce qui exclut l'hallucination, plus sûrement qu'une relecture
+ne le ferait. La source reste affichée et cliquable dans l'application, sous
+chaque anecdote : le lecteur peut toujours remonter au texte d'origine et
+vérifier lui-même.
+
 ## Stack
 
 - React Native + Expo (TypeScript)
@@ -37,6 +47,7 @@ supabase/functions/city-search/     proxy Google Places (clé côté serveur)
 supabase/functions/generate-anecdote/  Wikipédia + Mérimée + DeepSeek → `draft`
 supabase/functions/send-daily-notifications/  envoi push, appelé par pg_cron
 supabase/functions/delete-account/  suppression de compte (clé de service)
+supabase/functions/rapport-quotidien/  rapport du matin par email (pg_cron)
 supabase/migrations/                schéma
 telecharger/index.html              page d'atterrissage des liens partagés
 ```
@@ -154,6 +165,7 @@ npx supabase functions deploy city-search
 npx supabase functions deploy generate-anecdote
 npx supabase functions deploy send-daily-notifications
 npx supabase functions deploy delete-account
+npx supabase functions deploy rapport-quotidien
 ```
 
 ## Tests
@@ -220,10 +232,10 @@ L'étape 3 est le vrai garde-fou : elle attrape l'erreur la plus dangereuse du
 modèle, le récit plausible avec une date fabriquée. La normalisation tolère les
 accents perdus et les apostrophes typographiques, pas l'invention.
 
-L'anecdote est stockée avec l'URL Wikipédia réelle, et **toujours en
-`status = 'draft'`** : un extrait d'encyclopédie n'est pas une validation
-éditoriale. Un index unique sur `(city_place_id, lower(title))` empêche les
-doublons.
+L'anecdote est stockée avec l'URL réelle de ses sources, et **toujours en
+`status = 'draft'`** : c'est la barrière de publication, décrite plus bas, qui
+décide ensuite de la servir ou de la laisser en attente. Un index unique sur
+`(city_place_id, lower(title))` empêche les doublons.
 
 La réponse de la fonction renvoie un champ `dossier` listant chaque document
 retenu, son origine et son volume : c'est là qu'on voit ce qui a réellement
@@ -239,10 +251,67 @@ tous supports confondus — le rythme quotidien suppose donc d'élargir le
 périmètre géographique quand une ville est épuisée, ou d'assumer un cycle de
 reprise.
 
+### Ouverture automatique d'une ville
+
+Demander une ville depuis l'app déclenche désormais toute la chaîne, sans
+intervention :
+
+| Étape | Quand | Quoi |
+|---|---|---|
+| `demander_ville()` | à la demande | enregistre dans `demandes_ville` |
+| `produire_villes_demandees(2, 15)` | toutes les heures, à :07 | deux villes au plus, jusqu'à 15 anecdotes chacune |
+| `valider_automatiquement(100)` | tous les quarts d'heure | publie ce qui passe la barrière |
+| `declencher_alerte_villes_pretes()` | toutes les deux heures, 8 h 30 à 20 h 30 | email « ta ville est prête » |
+
+La barrière de publication tient en trois conditions cumulées, dans
+`valider_automatiquement` :
+
+- les citations ont été retrouvées **mot pour mot** dans le dossier
+  documentaire — filtre déterministe, appliqué avant même l'insertion ;
+- le second passage de vérification rend `verdict = 'confirme'`, et non un
+  doute ;
+- il rend `confidence = 'haute'`.
+
+Tout ce qui ne coche pas les trois reste en `draft` et attend la relecture
+humaine décrite ci-dessous. Le verdict a sa propre colonne depuis cette
+bascule : le lire dans la phrase française de `verification_notes` reviendrait
+à publier au gré d'une reformulation du prompt.
+
+L'email au lecteur attend **cinq anecdotes validées** dans sa ville, pour qu'il
+n'arrive pas sur une ville qu'il épuise le soir même. Une demande de plus de
+sept jours abaisse ce seuil à une : certaines villes n'ont pas la matière
+documentaire pour en produire cinq, et attendre un seuil qui ne tombera jamais
+serait pire que de prévenir sur trois textes.
+
+Pour surveiller ce que la chaîne va produire au prochain passage :
+
+```sql
+select * from villes_a_ouvrir(15, 2);
+```
+
+### Rapport quotidien — `rapport_quotidien()`
+
+Un email chaque matin à 6 h UTC, vers `ANECTO_ALERT_EMAIL` : lecteurs de la
+veille rapportés au nombre de profils, anecdotes lues, lecteurs actifs sur sept
+jours, nouveaux comptes, état du stock, brouillons en attente, demandes de
+ville non servies.
+
+Il porte surtout une alerte : **les lecteurs à trois anecdotes ou moins de la
+fin de leur ville**, en comptant les anecdotes validées qui ne leur ont jamais
+été servies. C'est la seule métrique qui prévient d'un départ avant qu'il ait
+lieu — un lecteur qui tombe sur « Rien à lire aujourd'hui » ne revient pas le
+lendemain. Le sujet de l'email porte le compte, l'ouvrir n'est nécessaire que
+les jours où quelque chose cloche.
+
+La journée se juge à Paris et non en UTC, sinon les lectures de 23 h compteraient
+pour le lendemain.
+
 ### Relecture — `anecdotes_a_valider`
 
-La génération n'écrit qu'en `draft` ; rien n'atteint un lecteur avant relecture
-humaine. La file se lit dans le Table Editor de Supabase :
+La génération n'écrit qu'en `draft`. Ce qui franchit les trois conditions de la
+barrière ci-dessus est publié sans intervention ; **tout le reste attend une
+relecture humaine** — un doute à la vérification, une confiance moyenne ou
+faible, et la file se remplit. Elle se lit dans le Table Editor de Supabase :
 
 ```sql
 select * from anecdotes_a_valider;
