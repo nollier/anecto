@@ -328,6 +328,14 @@ veille rapportés au nombre de profils, anecdotes lues, lecteurs actifs sur sept
 jours, nouveaux comptes, état du stock, brouillons en attente, demandes de
 ville non servies.
 
+Il liste aussi **la production de la veille** : chaque anecdote écrite, avec son
+verdict, sa confiance et le sort que la barrière lui a réservé — puis chaque
+anecdote refusée avant enregistrement, **avec son motif**. Ces refus n'étaient
+consignés nulle part : ils partaient dans la réponse HTTP, que le cron jette, et
+dans les journaux de la fonction, que personne ne lit. Ils vivent maintenant
+dans `rejets_anecdote`, et c'est cette liste qui dit s'il faut corriger le
+prompt, la source ou la ville.
+
 Il porte surtout une alerte : **les lecteurs à trois anecdotes ou moins de la
 fin de leur ville**, en comptant les anecdotes validées qui ne leur ont jamais
 été servies. C'est la seule métrique qui prévient d'un départ avant qu'il ait

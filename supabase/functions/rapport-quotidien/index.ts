@@ -30,6 +30,20 @@ interface StockBas {
   restantes: number;
 }
 
+interface Creee {
+  ville: string;
+  titre: string;
+  statut: 'validated' | 'draft';
+  verdict: string | null;
+  confiance: string | null;
+}
+
+interface Rejet {
+  ville: string;
+  titre: string | null;
+  motif: string;
+}
+
 interface Rapport {
   jour: string;
   lecteurs: number;
@@ -42,6 +56,8 @@ interface Rapport {
   brouillons: number;
   demandes_en_attente: number;
   stocks_bas: StockBas[];
+  creees: Creee[];
+  rejets: Rejet[];
 }
 
 function echapper(texte: string): string {
@@ -115,6 +131,29 @@ function corps(r: Rapport): { texte: string; html: string } {
     lignes.push('', 'Aucun lecteur à moins de quatre anecdotes de la fin de sa ville.');
   }
 
+  // La production de la veille, publiée d'un côté, refusée de l'autre. C'est
+  // ce couple qui dit si la barrière est au bon endroit : trop de refus et la
+  // ville n'ouvrira jamais, aucun refus et elle ne filtre plus rien.
+  if (r.creees.length > 0) {
+    const publiees = r.creees.filter((c) => c.statut === 'validated');
+    lignes.push(
+      '',
+      `${r.creees.length} ${accord(r.creees.length, 'anecdote écrite', 'anecdotes écrites')}, ${publiees.length} ${accord(publiees.length, 'publiée', 'publiées')} :`,
+      ...r.creees.map(
+        (c) =>
+          `  ${c.statut === 'validated' ? '✓' : '·'} ${c.ville} — ${c.titre} (${c.verdict ?? 'sans verdict'}, confiance ${c.confiance ?? 'inconnue'})`
+      )
+    );
+  }
+
+  if (r.rejets.length > 0) {
+    lignes.push(
+      '',
+      `${r.rejets.length} ${accord(r.rejets.length, 'anecdote refusée', 'anecdotes refusées')} avant enregistrement :`,
+      ...r.rejets.map((x) => `  ${x.ville}${x.titre ? ` — ${x.titre}` : ''}\n    ${x.motif}`)
+    );
+  }
+
   const ligneStat = (valeur: string, libelle: string) =>
     `<tr><td style="padding:6px 16px 6px 0;font-size:22px;font-weight:700;color:#1a1a1a;white-space:nowrap">${valeur}</td><td style="padding:6px 0;font-size:14px;color:#666;line-height:1.5">${libelle}</td></tr>`;
 
@@ -156,6 +195,55 @@ function corps(r: Rapport): { texte: string; html: string } {
         )}.</p>`
       : '';
 
+  const production =
+    r.creees.length > 0
+      ? `<div style="border-top:1px solid #eee;padding-top:16px;margin-top:24px">
+    <div style="font-size:13px;font-weight:700;color:#1a1a1a;margin-bottom:10px">${r.creees.length} ${accord(
+      r.creees.length,
+      'anecdote écrite',
+      'anecdotes écrites'
+    )}, ${r.creees.filter((c) => c.statut === 'validated').length} ${accord(
+      r.creees.filter((c) => c.statut === 'validated').length,
+      'publiée',
+      'publiées'
+    )}</div>
+    ${r.creees
+      .map(
+        (c) =>
+          `<div style="font-size:14px;color:#444;margin-bottom:5px"><span style="color:${
+            c.statut === 'validated' ? '#2e7d32' : '#b0a9a4'
+          };font-weight:700">${c.statut === 'validated' ? '✓' : '·'}</span> <strong>${echapper(
+            c.ville
+          )}</strong> — ${echapper(c.titre)} <span style="color:#999;font-size:13px">(${echapper(
+            c.verdict ?? 'sans verdict'
+          )}, confiance ${echapper(c.confiance ?? 'inconnue')})</span></div>`
+      )
+      .join('')}
+  </div>`
+      : '';
+
+  // Le motif compte plus que le titre : c'est lui qui dit quoi corriger.
+  const refuses =
+    r.rejets.length > 0
+      ? `<div style="border-top:1px solid #eee;padding-top:16px;margin-top:24px">
+    <div style="font-size:13px;font-weight:700;color:#1a1a1a;margin-bottom:10px">${r.rejets.length} ${accord(
+      r.rejets.length,
+      'anecdote refusée',
+      'anecdotes refusées'
+    )} avant enregistrement</div>
+    ${r.rejets
+      .map(
+        (x) =>
+          `<div style="margin-bottom:12px"><div style="font-size:14px;color:#1a1a1a"><strong>${echapper(
+            x.ville
+          )}</strong>${x.titre ? ` — ${echapper(x.titre)}` : ''}</div><div style="font-size:13px;color:#777;line-height:1.5">${echapper(
+            x.motif
+          )}</div></div>`
+      )
+      .join('')}
+  </div>`
+      : '';
+
   const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:560px;margin:0 auto;padding:32px 24px;color:#1a1a1a">
   <div style="font-size:11px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#b3402f;margin-bottom:6px">Anecto — rapport quotidien</div>
   <div style="font-size:24px;font-weight:700;margin-bottom:20px">${echapper(date)}</div>
@@ -175,6 +263,10 @@ function corps(r: Rapport): { texte: string; html: string } {
   </table>
 
   ${alerte}
+
+  ${production}
+
+  ${refuses}
 
   <div style="border-top:1px solid #eee;padding-top:16px;margin-top:24px">
     <p style="font-size:14px;color:#666;margin:0 0 8px">${r.anecdotes_validees} anecdotes validées sur ${r.villes_ouvertes} villes.</p>
@@ -239,6 +331,8 @@ Deno.serve(async (req) => {
     jour: rapport.jour,
     lecteurs: rapport.lecteurs,
     stocks_bas: rapport.stocks_bas.length,
+    creees: rapport.creees.length,
+    rejets: rapport.rejets.length,
     seuil: STOCK_BAS,
   });
 });

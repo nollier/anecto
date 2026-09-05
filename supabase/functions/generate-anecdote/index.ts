@@ -310,6 +310,33 @@ async function generateOne(
   return { ok: true, redaction: clean, verification, citations: controle.citationsValides };
 }
 
+/**
+ * Consigne une anecdote écartée, avec son motif.
+ *
+ * Sans ce journal, un rejet ne laisse aucune trace : le motif part dans la
+ * réponse HTTP, que le cron jette, et dans les journaux de la fonction, que
+ * personne ne lit. On paie alors une génération sur deux sans jamais savoir ce
+ * qui cloche — or c'est précisément cette liste qui dit s'il faut corriger le
+ * prompt, la source ou la ville.
+ *
+ * Best effort : un journal qui échoue ne doit pas interrompre une production.
+ */
+async function noterRejet(
+  supabase: ReturnType<typeof createClient>,
+  city: string,
+  cityPlaceId: string | null,
+  motif: string,
+  titre?: string | null
+): Promise<void> {
+  const { error } = await supabase.from('rejets_anecdote').insert({
+    city,
+    city_place_id: cityPlaceId,
+    titre: titre ?? null,
+    motif,
+  });
+  if (error) console.error('Journal des rejets', error);
+}
+
 // -------------------------------------------------------------------- HTTP
 
 Deno.serve(async (req) => {
@@ -401,6 +428,7 @@ Deno.serve(async (req) => {
 
     if (!result.ok) {
       skipped.push(result.reason);
+      await noterRejet(supabase, city, cityPlaceId, result.reason);
       continue;
     }
 
@@ -473,6 +501,13 @@ Deno.serve(async (req) => {
       // 23505 = index unique (city_place_id, lower(title)) : déjà générée.
       if (error.code === '23505') {
         skipped.push(`Doublon : « ${redaction.titre} »`);
+        await noterRejet(
+          supabase,
+          city,
+          cityPlaceId,
+          'Doublon : une anecdote de même titre existe déjà pour cette ville.',
+          redaction.titre
+        );
       } else {
         console.error('Insertion échouée', error);
         return json({ created: created.length, skipped, error: error.message }, 500);
