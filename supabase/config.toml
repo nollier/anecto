@@ -15,6 +15,12 @@ verify_jwt = false
 [functions.notify-city-ready]
 verify_jwt = false
 
+# Oubliée à sa création, elle héritait du défaut `true` : le cron l'appelait
+# avec le secret admin et sans JWT, la passerelle répondait 401 avant même
+# d'exécuter la fonction, et le rapport du matin n'arrivait jamais.
+[functions.rapport-quotidien]
+verify_jwt = false
+
 # Appelée avant toute session : c'est elle qui en ouvre une pour le compte de
 # revue des magasins. Elle porte sa propre authentification — adresse et code
 # comparés à ses secrets — d'où verify_jwt à false.
