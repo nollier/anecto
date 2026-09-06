@@ -335,13 +335,16 @@ export default function HomeScreen() {
           <Text style={styles.feedbackQuestion}>Comment trouvez-vous cette anecdote ?</Text>
           <View style={styles.feedbackRow}>
             <TouchableOpacity style={styles.feedbackBtn} onPress={() => submitFeedback('adore')}>
-              <Text style={styles.feedbackBtnText}>😍 J'adore</Text>
+              <Text style={styles.feedbackBtnEmoji}>😍</Text>
+              <Text style={styles.feedbackBtnText} numberOfLines={1}>J'adore</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.feedbackBtn} onPress={() => setSaisie('incomplete')}>
-              <Text style={styles.feedbackBtnText}>✏️ Incomplète</Text>
+              <Text style={styles.feedbackBtnEmoji}>✏️</Text>
+              <Text style={styles.feedbackBtnText} numberOfLines={1}>Incomplète</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.feedbackBtn} onPress={() => setSaisie('propose')}>
-              <Text style={styles.feedbackBtnText}>💡 Proposer</Text>
+              <Text style={styles.feedbackBtnEmoji}>💡</Text>
+              <Text style={styles.feedbackBtnText} numberOfLines={1}>Proposer</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -444,7 +447,12 @@ const styles = StyleSheet.create({
   feedbackBlock: { marginTop: 32, paddingTop: 20, borderTopWidth: 1, borderTopColor: '#eee' },
   feedbackQuestion: { fontSize: 15, fontWeight: '600', marginBottom: 12 },
   feedbackRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
-  feedbackBtn: { flex: 1, backgroundColor: '#f2f2f2', padding: 12, borderRadius: 10, alignItems: 'center' },
+  feedbackBtn: { flex: 1, backgroundColor: '#f2f2f2', paddingVertical: 12, paddingHorizontal: 4, borderRadius: 10, alignItems: 'center' },
+  feedbackBtnEmoji: { fontSize: 18, marginBottom: 4 },
+  // Emoji et libellé sur deux lignes : « Incomplète » seul, à 13pt, tient
+  // toujours dans le tiers de largeur qui lui reste sur un écran Android
+  // étroit — c'est le partage avec l'emoji sur la même ligne qui le faisait
+  // déborder sur deux lignes.
   feedbackBtnText: { fontSize: 13, fontWeight: '600' },
   input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 10, padding: 12, minHeight: 80, textAlignVertical: 'top' },
   submitBtn: { backgroundColor: '#222', padding: 14, borderRadius: 10, alignItems: 'center', marginTop: 12 },

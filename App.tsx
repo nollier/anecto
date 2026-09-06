@@ -5,6 +5,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
 import { View, ActivityIndicator } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import * as Notifications from 'expo-notifications';
 import type { Session } from '@supabase/supabase-js';
 
@@ -49,6 +50,15 @@ function OngletHistorique() {
 }
 
 const ONGLET_DU_JOUR = "Aujourd'hui";
+
+// Sans `tabBarIcon`, react-navigation affiche un rectangle vide en lieu et
+// place de l'icône manquante — visible sur Android, où aucune police système
+// ne comble le trou comme sur iOS.
+const ICONES_ONGLET: Record<string, keyof typeof Ionicons.glyphMap> = {
+  [ONGLET_DU_JOUR]: 'today',
+  Historique: 'time',
+  Réglages: 'settings',
+};
 
 function ouvrirAnecdoteDuJour() {
   if (navigationRef.isReady()) {
@@ -117,7 +127,19 @@ export default function App() {
   return (
     <NavigationContainer ref={navigationRef}>
       <StatusBar style="dark" />
-      <Tab.Navigator screenOptions={{ headerShown: false }}>
+      <Tab.Navigator
+        screenOptions={({ route }) => ({
+          headerShown: false,
+          tabBarActiveTintColor: '#b3402f',
+          tabBarInactiveTintColor: '#888',
+          tabBarIcon: ({ focused, color, size }) => {
+            const nom = ICONES_ONGLET[route.name];
+            return (
+              <Ionicons name={focused ? nom : (`${nom}-outline` as any)} size={size} color={color} />
+            );
+          },
+        })}
+      >
         <Tab.Screen name={ONGLET_DU_JOUR} component={HomeScreen} />
         <Tab.Screen name="Historique" component={OngletHistorique} />
         <Tab.Screen name="Réglages" component={SettingsScreen} />
