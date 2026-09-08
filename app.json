@@ -39,7 +39,9 @@
       "favicon": "./assets/favicon.png"
     },
     "locales": {
-      "fr": "./locales/fr.json"
+      "fr": {
+        "ios": "./locales/fr.json"
+      }
     },
     "plugins": [
       [
