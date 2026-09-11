@@ -30,6 +30,11 @@ interface Demande {
   id: string;
   email: string | null;
   ville: string;
+  /**
+   * Explication à joindre quand la ville ouverte n'est pas celle demandée —
+   * un quartier rattaché à sa commune, un homonyme. Null dans le cas normal.
+   */
+  note: string | null;
 }
 
 function echapper(texte: string): string {
@@ -46,7 +51,10 @@ function enumerer(villes: string[]): string {
   return `${villes.slice(0, -1).join(', ')} et ${villes[villes.length - 1]}`;
 }
 
-function message(villes: string[]): { sujet: string; texte: string; html: string } {
+function message(
+  villes: string[],
+  notes: string[]
+): { sujet: string; texte: string; html: string } {
   const liste = enumerer(villes);
   const plusieurs = villes.length > 1;
 
@@ -60,6 +68,7 @@ function message(villes: string[]): { sujet: string; texte: string; html: string
     plusieurs
       ? "Tu avais demandé ces villes : leurs premières anecdotes sont validées. Ouvre l'app, va dans Réglages, et choisis celle que tu veux suivre."
       : "Tu avais demandé cette ville : ses premières anecdotes sont validées. Ouvre l'app, va dans Réglages, et choisis-la pour recevoir l'anecdote du jour.",
+    ...(notes.length > 0 ? ['', ...notes] : []),
     '',
     '—',
     "Tu reçois ce message parce que tu as demandé l'ouverture de cette ville depuis l'application Anecto. C'est le seul message envoyé à ce titre.",
@@ -74,6 +83,14 @@ function message(villes: string[]): { sujet: string; texte: string; html: string
       ? "Tu avais demandé ces villes : leurs premières anecdotes sont validées."
       : "Tu avais demandé cette ville : ses premières anecdotes sont validées."
   }</p>
+  ${notes
+    .map(
+      (note) =>
+        `<p style="font-size:15px;line-height:1.6;margin:0 0 16px;padding:12px 14px;background:#faf6f2;border-left:3px solid #b3402f">${echapper(
+          note
+        )}</p>`
+    )
+    .join('\n  ')}
   <p style="font-size:16px;line-height:1.6;margin:0 0 28px">Ouvre Anecto, va dans <strong>Réglages</strong>, et ${
     plusieurs ? 'choisis celle que tu veux suivre' : 'choisis-la'
   } pour recevoir l'anecdote du jour.</p>
@@ -142,7 +159,12 @@ Deno.serve(async (req) => {
       // Deux demandes peuvent porter le même nom de ville avec deux place_id
       // distincts (communes homonymes) : ne l'écrire qu'une fois.
       const villes = [...new Set(lot.map((d) => d.ville))];
-      const { sujet, texte, html } = message(villes);
+      // Deux demandes peuvent porter la même explication : ne la lire qu'une
+      // fois non plus.
+      const notes = [
+        ...new Set(lot.map((d) => d.note?.trim()).filter((n): n is string => !!n)),
+      ];
+      const { sujet, texte, html } = message(villes, notes);
 
       try {
         await envoi.envoyer(destinataire, sujet, texte, html);
