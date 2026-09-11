@@ -35,8 +35,19 @@ const TIMEOUT_MS = 15000;
 
 // Repli quand la commune n'a ni catégorie ni liste de monuments : on filtre
 // alors les liens de la page ville, comme avant.
+//
+// La liste d'origine décrit une commune de France métropolitaine : église,
+// château, halles, beffroi. Elle rend une anecdote pour Saint-Paul de La
+// Réunion, où le patrimoine porte d'autres noms — le cimetière marin, la
+// grotte des Premiers Français, le lazaret de la Grande Chaloupe, les
+// sucreries. Aucun de ces articles ne commençait par un mot reconnu, et le
+// dossier revenait avec deux documents au lieu de sept.
+//
+// Les ajouts restent des mots qui désignent un lieu daté et racontable. On
+// n'ajoute ni « rue » ni « quartier » : leurs articles énumèrent, ils ne
+// racontent pas.
 const PATRIMOINE =
-  /^(église|cathédrale|abbaye|chapelle|basilique|prieuré|collégiale|couvent|château|fort|citadelle|tour|donjon|remparts?|porte|manoir|hôtel|halles?|beffroi|moulin|pont|phare|musée|temple|théâtre|arènes|aqueduc|maison|place|statue|monument|palais|opéra|prison|caserne)\b/i;
+  /^(église|cathédrale|abbaye|chapelle|basilique|prieuré|collégiale|couvent|séminaire|presbytère|calvaire|temple|mosquée|synagogue|pagode|château|fort|citadelle|batterie|redoute|poudrière|tour|donjon|remparts?|porte|manoir|villa|case|hôtel|halles?|beffroi|moulin|pont|phare|sémaphore|musée|théâtre|arènes|aqueduc|maison|place|statue|monument|stèle|croix|fontaine|lavoir|palais|opéra|prison|bagne|caserne|lazaret|hospice|hôpital|léproserie|cimetière|nécropole|grotte|dolmen|menhir|oppidum|thermes|sucrerie|distillerie|usine|manufacture|entrepôt|gare|kiosque|conservatoire|bibliothèque|observatoire|jardin|domaine|habitation|cave)\b/i;
 
 // deno-lint-ignore no-explicit-any
 async function call(params: Record<string, string>): Promise<any> {
