@@ -30,6 +30,12 @@ interface StockBas {
   restantes: number;
 }
 
+interface Adore {
+  ville: string;
+  titre: string;
+  combien: number;
+}
+
 interface Rapport {
   jour: string;
   lecteurs: number;
@@ -42,7 +48,14 @@ interface Rapport {
   brouillons: number;
   demandes_en_attente: number;
   stocks_bas: StockBas[];
+  adores: number;
+  adores_detail: Adore[];
 }
+
+// Un « J'adore » par anecdote et par lecteur : la liste d'une journée tient en
+// quelques lignes. Le plafond est là pour le jour où ce ne sera plus vrai —
+// un rapport de deux cents lignes ne se lit pas.
+const MAX_ADORES_LISTES = 10;
 
 function echapper(texte: string): string {
   return texte
@@ -87,6 +100,28 @@ function corps(r: Rapport): { texte: string; html: string } {
     );
   }
 
+  // Le seul signal positif que le lecteur sache émettre. L'alerte retours
+  // l'écarte volontairement, faute de commentaire à traiter : sans cette
+  // ligne, il ne se lit nulle part.
+  if (r.adores > 0) {
+    lignes.push(
+      '',
+      `${r.adores} « J'adore » sur ${r.adores_detail.length} ${accord(
+        r.adores_detail.length,
+        'anecdote',
+        'anecdotes'
+      )} :`,
+      ...r.adores_detail
+        .slice(0, MAX_ADORES_LISTES)
+        .map(
+          (a) => `  ${a.ville} — ${a.titre}${a.combien > 1 ? ` (${a.combien})` : ''}`
+        )
+    );
+    if (r.adores_detail.length > MAX_ADORES_LISTES) {
+      lignes.push(`  et ${r.adores_detail.length - MAX_ADORES_LISTES} autres.`);
+    }
+  }
+
   lignes.push('', `Stock : ${r.anecdotes_validees} anecdotes validées sur ${r.villes_ouvertes} villes.`);
 
   if (r.brouillons > 0) {
@@ -117,6 +152,31 @@ function corps(r: Rapport): { texte: string; html: string } {
 
   const ligneStat = (valeur: string, libelle: string) =>
     `<tr><td style="padding:6px 16px 6px 0;font-size:22px;font-weight:700;color:#1a1a1a;white-space:nowrap">${valeur}</td><td style="padding:6px 0;font-size:14px;color:#666;line-height:1.5">${libelle}</td></tr>`;
+
+  const reactions =
+    r.adores > 0
+      ? `<div style="background:#f7f5f2;padding:14px 16px;margin:20px 0">
+    <div style="font-size:13px;font-weight:700;color:#7a6a5d;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px">Réactions</div>
+    ${r.adores_detail
+      .slice(0, MAX_ADORES_LISTES)
+      .map(
+        (a) =>
+          `<div style="font-size:15px;color:#1a1a1a;margin-bottom:6px"><strong>${echapper(
+            a.titre
+          )}</strong> <span style="color:#888">— ${echapper(a.ville)}</span>${
+            a.combien > 1 ? ` <span style="color:#7a6a5d">×${a.combien}</span>` : ''
+          }</div>`
+      )
+      .join('')}
+    ${
+      r.adores_detail.length > MAX_ADORES_LISTES
+        ? `<div style="font-size:13px;color:#888;margin-top:8px">et ${
+            r.adores_detail.length - MAX_ADORES_LISTES
+          } autres.</div>`
+        : ''
+    }
+  </div>`
+      : '';
 
   const alerte =
     r.stocks_bas.length > 0
@@ -172,7 +232,21 @@ function corps(r: Rapport): { texte: string; html: string } {
     ${ligneStat(String(r.anecdotes_lues), 'anecdotes lues en tout, rattrapages compris')}
     ${ligneStat(String(r.lecteurs_7j), 'lecteurs actifs sur sept jours')}
     ${r.nouveaux_profils > 0 ? ligneStat(String(r.nouveaux_profils), 'nouveaux comptes') : ''}
+    ${
+      r.adores > 0
+        ? ligneStat(
+            String(r.adores),
+            `« J'adore » sur ${r.adores_detail.length} ${accord(
+              r.adores_detail.length,
+              'anecdote',
+              'anecdotes'
+            )}`
+          )
+        : ''
+    }
   </table>
+
+  ${reactions}
 
   ${alerte}
 
