@@ -1,8 +1,9 @@
-import React, { useEffect } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, Linking } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, Linking, Platform } from 'react-native';
 import { useRoute, RouteProp } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { partagerAnecdote } from '../lib/partage';
+import AvisAnecdote from '../components/AvisAnecdote';
 import { Anecdote } from '../types';
 
 /**
@@ -17,6 +18,7 @@ type ParamsAnecdote = { Anecdote: { anecdote: Anecdote; luLe?: string } };
 export default function AnecdoteScreen() {
   const { params } = useRoute<RouteProp<ParamsAnecdote, 'Anecdote'>>();
   const { anecdote, luLe } = params;
+  const scrollRef = useRef<ScrollView>(null);
 
   // C'est ici que le rattrapage se constate : ouvrir une anecdote en retard
   // depuis l'historique la marque lue, au même titre que l'anecdote du jour
@@ -35,7 +37,16 @@ export default function AnecdoteScreen() {
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView
+      ref={scrollRef}
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
+      // Comme à l'accueil : c'est le système qui réserve la place du clavier
+      // sous le champ de correction, aucun calcul de marge côté React.
+      automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+      keyboardDismissMode="interactive"
+    >
       <Text style={styles.eyebrow}>
         {anecdote.city}
         {anecdote.period ? ` · ${anecdote.period}` : ''}
@@ -73,6 +84,12 @@ export default function AnecdoteScreen() {
       >
         <Text style={styles.partageTexte}>↗ Partager cette anecdote</Text>
       </TouchableOpacity>
+
+      {/* Une anecdote passée se note comme celle du jour, tant que rien n'a
+          encore été dit dessus : celui qui la redécouvre dans l'historique
+          n'a pas de raison d'avoir perdu son droit de vote. Un avis déjà
+          donné laisse simplement le remerciement à la place des boutons. */}
+      <AvisAnecdote anecdote={anecdote} scrollRef={scrollRef} />
     </ScrollView>
   );
 }
