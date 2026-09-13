@@ -6,20 +6,15 @@ import {
   ActivityIndicator,
   ScrollView,
   TouchableOpacity,
-  TextInput,
-  Alert,
   Linking,
   RefreshControl,
-  Keyboard,
   Platform,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { partagerAnecdote } from '../lib/partage';
-import { Anecdote, FeedbackType, Statistiques } from '../types';
-
-/** Le champ libre sert aux corrections comme aux propositions. */
-type SaisieLibre = 'incomplete' | 'propose' | null;
+import AvisAnecdote from '../components/AvisAnecdote';
+import { Anecdote, Statistiques } from '../types';
 
 /**
  * Ce que dit la flamme.
@@ -42,23 +37,8 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [profilConfigure, setProfilConfigure] = useState(true);
-  const [feedbackGiven, setFeedbackGiven] = useState<FeedbackType | null>(null);
-  const [saisie, setSaisie] = useState<SaisieLibre>(null);
-  const [texteLibre, setTexteLibre] = useState('');
   const [stats, setStats] = useState<Statistiques | null>(null);
   const scrollRef = useRef<ScrollView>(null);
-
-  // Le champ de saisie est en bas d'une anecdote de 300 à 450 mots : à
-  // l'ouverture du clavier il se retrouve dessous, et on écrit à l'aveugle.
-  // On attend `keyboardDidShow` plutôt que `onFocus` — à cet instant seulement
-  // la hauteur disponible est connue, donc `scrollToEnd` vise juste.
-  useEffect(() => {
-    if (!saisie) return;
-    const sub = Keyboard.addListener('keyboardDidShow', () => {
-      scrollRef.current?.scrollToEnd({ animated: true });
-    });
-    return () => sub.remove();
-  }, [saisie]);
 
   // Recharge à chaque retour sur l'onglet : changer de ville dans les Réglages
   // doit se voir immédiatement.
@@ -95,8 +75,6 @@ export default function HomeScreen() {
 
     const dujour = (data as Anecdote | null) ?? null;
     setAnecdote(dujour);
-    setSaisie(null);
-    setTexteLibre('');
 
     // L'anecdote est à l'écran : c'est ici, et nulle part ailleurs, qu'une
     // lecture est constatée. Le cron d'envoi ne marque plus rien — c'était
@@ -116,21 +94,6 @@ export default function HomeScreen() {
     const { data: mesures } = await supabase.rpc('mes_statistiques');
     setStats((mesures as Statistiques[] | null)?.[0] ?? null);
 
-    // L'avis vit en base, pas dans l'état du composant : relancer l'app ne
-    // doit pas permettre de voter une seconde fois.
-    if (dujour) {
-      const { data: avis } = await supabase
-        .from('feedback')
-        .select('type')
-        .eq('user_id', userData.user.id)
-        .eq('anecdote_id', dujour.id)
-        .limit(1)
-        .maybeSingle();
-      setFeedbackGiven((avis?.type as FeedbackType) ?? null);
-    } else {
-      setFeedbackGiven(null);
-    }
-
     setLoading(false);
     setRefreshing(false);
   }
@@ -147,36 +110,6 @@ export default function HomeScreen() {
       screen: 'Liste',
       params: { filtre: 'non_lues', demandeLe: Date.now() },
     });
-  }
-
-  async function submitFeedback(type: FeedbackType, comment?: string) {
-    if (!anecdote) return;
-    const { data: userData } = await supabase.auth.getUser();
-    if (!userData.user) return;
-
-    // `reuse_count` n'est plus touché ici : RLS interdit toute écriture du
-    // client sur `anecdotes`, et le compteur appartient désormais à
-    // get_daily_anecdote(), qui l'incrémente à l'envoi.
-    const { error } = await supabase.from('feedback').insert({
-      user_id: userData.user.id,
-      anecdote_id: anecdote.id,
-      type,
-      comment: comment?.trim() || null,
-    });
-
-    if (error) {
-      Alert.alert('Retour non enregistré', 'Réessaie dans un instant.');
-      return;
-    }
-
-    setFeedbackGiven(type);
-    setSaisie(null);
-    Alert.alert(
-      'Merci !',
-      type === 'propose'
-        ? 'Ta proposition part en relecture.'
-        : 'Ton retour a bien été enregistré.'
-    );
   }
 
   function ouvrirSource() {
@@ -228,11 +161,6 @@ export default function HomeScreen() {
       </ScrollView>
     );
   }
-
-  const question =
-    saisie === 'propose'
-      ? 'Quelle anecdote connais-tu sur ta ville ?'
-      : "Qu'est-ce qui manque ou est incorrect ?";
 
   return (
     <ScrollView
@@ -330,57 +258,10 @@ export default function HomeScreen() {
         <Text style={styles.partageTexte}>↗ Partager cette anecdote</Text>
       </TouchableOpacity>
 
-      {!feedbackGiven && !saisie && (
-        <View style={styles.feedbackBlock}>
-          <Text style={styles.feedbackQuestion}>Comment trouvez-vous cette anecdote ?</Text>
-          <View style={styles.feedbackRow}>
-            <TouchableOpacity style={styles.feedbackBtn} onPress={() => submitFeedback('adore')}>
-              <Text style={styles.feedbackBtnEmoji}>😍</Text>
-              <Text style={styles.feedbackBtnText} numberOfLines={1}>J'adore</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.feedbackBtn} onPress={() => setSaisie('incomplete')}>
-              <Text style={styles.feedbackBtnEmoji}>✏️</Text>
-              <Text style={styles.feedbackBtnText} numberOfLines={1}>Incomplète</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.feedbackBtn} onPress={() => setSaisie('propose')}>
-              <Text style={styles.feedbackBtnEmoji}>💡</Text>
-              <Text style={styles.feedbackBtnText} numberOfLines={1}>Proposer</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-
-      {saisie && (
-        <View style={styles.feedbackBlock}>
-          <Text style={styles.feedbackQuestion}>{question}</Text>
-          <TextInput
-            style={styles.input}
-            multiline
-            // Ouvre le clavier dès le choix du bouton : une frappe de moins,
-            // et c'est ce qui déclenche la remontée du champ.
-            autoFocus
-            value={texteLibre}
-            onChangeText={setTexteLibre}
-            placeholder={
-              saisie === 'propose'
-                ? 'Raconte-la, avec sa source si tu la connais…'
-                : 'Décris la correction…'
-            }
-          />
-          <TouchableOpacity
-            style={[styles.submitBtn, !texteLibre.trim() && styles.submitBtnDisabled]}
-            disabled={!texteLibre.trim()}
-            onPress={() => submitFeedback(saisie, texteLibre)}
-          >
-            <Text style={styles.submitBtnText}>Envoyer</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => setSaisie(null)}>
-            <Text style={styles.cancel}>Annuler</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {feedbackGiven && <Text style={styles.thanksText}>Merci pour ton retour 🙌</Text>}
+      {/* Le vote n'est pas réservé au jour de l'envoi : le même bloc sert à
+          la relecture depuis l'historique, et n'apparaît que si rien n'a
+          encore été dit sur cette anecdote. */}
+      <AvisAnecdote anecdote={anecdote} scrollRef={scrollRef} />
     </ScrollView>
   );
 }
@@ -444,20 +325,4 @@ const styles = StyleSheet.create({
   emptyText: { fontSize: 16, textAlign: 'center', color: '#666', lineHeight: 22 },
   cta: { backgroundColor: '#222', paddingVertical: 14, paddingHorizontal: 28, borderRadius: 10, marginTop: 24 },
   ctaText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  feedbackBlock: { marginTop: 32, paddingTop: 20, borderTopWidth: 1, borderTopColor: '#eee' },
-  feedbackQuestion: { fontSize: 15, fontWeight: '600', marginBottom: 12 },
-  feedbackRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
-  feedbackBtn: { flex: 1, backgroundColor: '#f2f2f2', paddingVertical: 12, paddingHorizontal: 4, borderRadius: 10, alignItems: 'center' },
-  feedbackBtnEmoji: { fontSize: 18, marginBottom: 4 },
-  // Emoji et libellé sur deux lignes : « Incomplète » seul, à 13pt, tient
-  // toujours dans le tiers de largeur qui lui reste sur un écran Android
-  // étroit — c'est le partage avec l'emoji sur la même ligne qui le faisait
-  // déborder sur deux lignes.
-  feedbackBtnText: { fontSize: 13, fontWeight: '600' },
-  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 10, padding: 12, minHeight: 80, textAlignVertical: 'top' },
-  submitBtn: { backgroundColor: '#222', padding: 14, borderRadius: 10, alignItems: 'center', marginTop: 12 },
-  submitBtnDisabled: { backgroundColor: '#bbb' },
-  submitBtnText: { color: '#fff', fontSize: 13, fontWeight: '600' },
-  cancel: { textAlign: 'center', color: '#888', marginTop: 12, fontSize: 14 },
-  thanksText: { marginTop: 24, textAlign: 'center', color: '#666' },
 });
