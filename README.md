@@ -277,6 +277,15 @@ Pour aller au-delà (presse locale, archives municipales), ajouter une source
 revient à écrire un fetcher qui renvoie des `SourceDoc` et à l'inscrire dans
 `buildDossier` : le reste de la chaîne ne bouge pas.
 
+Les sources candidates sont recensées dans [`docs/sources.md`](docs/sources.md) —
+archives, presse ancienne, bases patrimoniales, historiens — avec pour chacune
+son mode d'accès réel. Deux enseignements y sont consignés. D'abord, presque
+rien ne s'automatise : ce qui porte les anecdotes les plus rares, délibérations
+municipales et archives notariales, se consulte sur place. Ensuite, ce qui
+s'automatise ne se cite pas toujours : la chaîne recopie ses sources mot pour
+mot et affiche le lien sous l'anecdote, ce que la licence d'un média de presse
+n'autorise pas.
+
 **Le piège de l'homonyme.** Le dossier partait du nom de la ville, cherché tel
 quel dans Wikipédia. « Saint-Paul » y rend une page d'homonymie, dont les liens
 mènent aux basiliques de Rome et au village des Alpes-Maritimes : dix anecdotes
