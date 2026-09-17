@@ -33,6 +33,11 @@ const MAX_CHARS_PER_DOC = 10000;
 const MAX_ARTICLES = 7;
 const TIMEOUT_MS = 15000;
 
+// Rayon de la recherche géographique, en mètres. 10 km couvre une commune et
+// ses écarts sans déborder sur la ville voisine — au-delà, on raconterait le
+// canton.
+const GEO_RADIUS_M = 10000;
+
 // Repli quand la commune n'a ni catégorie ni liste de monuments : on filtre
 // alors les liens de la page ville, comme avant.
 //
@@ -67,6 +72,27 @@ async function call(params: Record<string, string>): Promise<any> {
   return await res.json();
 }
 
+/** Vrai si l'article est une page d'homonymie. */
+async function estHomonymie(titre: string): Promise<boolean> {
+  try {
+    const data = await call({
+      action: 'query',
+      prop: 'pageprops',
+      ppprop: 'disambiguation',
+      redirects: '1',
+      titles: titre,
+    });
+    // deno-lint-ignore no-explicit-any
+    const pages: Record<string, any> = data?.query?.pages ?? {};
+    const page = Object.values(pages)[0];
+    return Boolean(page?.pageprops && 'disambiguation' in page.pageprops);
+  } catch {
+    // Une vérification qui échoue ne doit pas faire échouer le dossier : on
+    // laisse passer le titre, comme avant l'ajout de ce garde-fou.
+    return false;
+  }
+}
+
 /** Titre de l'article le plus probable pour cette ville. */
 async function findCityTitle(city: string): Promise<string | null> {
   const data = await call({
@@ -83,7 +109,27 @@ async function findCityTitle(city: string): Promise<string | null> {
   // Un titre identique au nom saisi vaut mieux que le premier résultat de
   // pertinence, qui peut être une homonymie ou une personnalité locale.
   const exact = hits.find((h) => h.title.toLowerCase() === city.toLowerCase());
-  return (exact ?? hits[0]).title;
+  const titre = (exact ?? hits[0]).title;
+
+  // « Saint-Paul » rend une page d'homonymie, dont les liens mènent aux
+  // basiliques de Rome et au village des Alpes-Maritimes. Le dossier était
+  // donc authentique, les citations retrouvées mot pour mot — mais dans les
+  // sources d'une autre ville, et le contrôle ne voit pas cette erreur-là :
+  // dix anecdotes sont parties ainsi, dont quatre ont été servies.
+  //
+  // Rien, ici, ne permet de deviner lequel des homonymes est le bon. On
+  // préfère un dossier vide, que la fonction signale, à un dossier faux,
+  // qu'elle ne signale pas. L'appelant lève l'ambiguïté en passant le titre
+  // complet : « Saint-Paul (La Réunion) ».
+  if (await estHomonymie(titre)) {
+    console.error(
+      `Wikipédia « ${titre} » est une page d'homonymie : préciser la ville, ` +
+        `par exemple « ${city} (La Réunion) ».`
+    );
+    return null;
+  }
+
+  return titre;
 }
 
 /** Membres d'une catégorie, ou liste vide si elle n'existe pas. */
@@ -98,6 +144,51 @@ async function membresCategorie(nom: string): Promise<string[]> {
     });
     // deno-lint-ignore no-explicit-any
     return (data?.query?.categorymembers ?? []).map((m: any) => m.title as string);
+  } catch {
+    return [];
+  }
+}
+
+/** Coordonnées d'un article, ou null s'il n'en porte pas. */
+async function coordonnees(titre: string): Promise<{ lat: number; lon: number } | null> {
+  try {
+    const data = await call({
+      action: 'query',
+      prop: 'coordinates',
+      redirects: '1',
+      titles: titre,
+    });
+    // deno-lint-ignore no-explicit-any
+    const pages: Record<string, any> = data?.query?.pages ?? {};
+    const coord = Object.values(pages)[0]?.coordinates?.[0];
+    if (typeof coord?.lat !== 'number' || typeof coord?.lon !== 'number') return null;
+    return { lat: coord.lat, lon: coord.lon };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Articles géolocalisés dans un rayon autour d'un point.
+ *
+ * C'est la seule source du fichier qui ne repose ni sur un nom, ni sur une
+ * catégorie, ni sur un lien : un article est retenu parce que son sujet se
+ * trouve là, physiquement. À Saint-Paul de La Réunion, où la page de la
+ * commune ne rendait que sept articles de patrimoine et la catégorie six, la
+ * recherche géographique en rend une trentaine — l'attaque de 1809, la
+ * poudrière de 1724, le pont de l'Étang, l'observatoire du Maïdo.
+ */
+async function autour(lat: number, lon: number): Promise<string[]> {
+  try {
+    const data = await call({
+      action: 'query',
+      list: 'geosearch',
+      gscoord: `${lat}|${lon}`,
+      gsradius: String(GEO_RADIUS_M),
+      gslimit: '100',
+    });
+    // deno-lint-ignore no-explicit-any
+    return (data?.query?.geosearch ?? []).map((m: any) => m.title as string);
   } catch {
     return [];
   }
@@ -131,22 +222,42 @@ async function liens(titre: string): Promise<string[]> {
  * ville. Chaque source échoue en silence : c'est le cumul qui compte.
  */
 async function trouverMonuments(cityTitle: string): Promise<string[]> {
-  const [categorieA, categorieDe, listeMH, liensVille] = await Promise.all([
-    membresCategorie(`Catégorie:Monument historique à ${cityTitle}`),
-    membresCategorie(`Catégorie:Monument historique de ${cityTitle}`),
-    liens(`Liste des monuments historiques de ${cityTitle}`),
-    liens(cityTitle),
-  ]);
+  const point = await coordonnees(cityTitle);
+
+  const [categorieA, categorieDe, categorieVille, listeMH, liensVille, voisins] =
+    await Promise.all([
+      membresCategorie(`Catégorie:Monument historique à ${cityTitle}`),
+      membresCategorie(`Catégorie:Monument historique de ${cityTitle}`),
+      membresCategorie(`Catégorie:${cityTitle}`),
+      liens(`Liste des monuments historiques de ${cityTitle}`),
+      liens(cityTitle),
+      point ? autour(point.lat, point.lon) : Promise.resolve([]),
+    ]);
 
   const candidats = [
     ...categorieA,
     ...categorieDe,
     ...listeMH.filter((t) => PATRIMOINE.test(t)),
     ...liensVille.filter((t) => PATRIMOINE.test(t)),
+    // En dernier recours, la catégorie de la commune elle-même. Elle regroupe
+    // ce qu'aucun mot de PATRIMOINE ne désigne : à Saint-Paul de La Réunion,
+    // l'étang, le piton du Maïdo, la bataille de 1809. La page de la commune
+    // ne rendait que sept articles, tous déjà exploités, et le dossier
+    // revenait vide alors que la matière existait.
+    //
+    // Elle vient après les monuments, jamais avant : on n'y puise que
+    // lorsqu'ils manquent, puisque seuls les MAX_ARTICLES premiers titres
+    // entrent dans le dossier.
+    ...categorieVille.filter((t) => t !== cityTitle),
+    ...voisins.filter((t) => t !== cityTitle),
   ];
 
-  // Les pages de liste ne racontent rien : elles énumèrent.
-  const utiles = candidats.filter((t) => !/^(liste|catégorie)\b/i.test(t));
+  // Les pages de liste ne racontent rien : elles énumèrent. Les découpages
+  // administratifs non plus — la recherche géographique ramène les cantons,
+  // l'arrondissement et l'unité urbaine, qui n'alignent que des chiffres.
+  const utiles = candidats.filter(
+    (t) => !/^(liste|catégorie|canton|arrondissement|unité urbaine|communauté)\b/i.test(t)
+  );
 
   return [...new Set(utiles)];
 }

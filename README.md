@@ -277,6 +277,35 @@ Pour aller au-delà (presse locale, archives municipales), ajouter une source
 revient à écrire un fetcher qui renvoie des `SourceDoc` et à l'inscrire dans
 `buildDossier` : le reste de la chaîne ne bouge pas.
 
+**Le piège de l'homonyme.** Le dossier partait du nom de la ville, cherché tel
+quel dans Wikipédia. « Saint-Paul » y rend une page d'homonymie, dont les liens
+mènent aux basiliques de Rome et au village des Alpes-Maritimes : dix anecdotes
+ont ainsi été écrites sur Saint-Pierre, Saint-Jean-de-Latran et la chapelle
+Pauline, et servies à un lecteur de Saint-Paul de La Réunion. Le contrôle des
+citations n'y voyait rien, et c'est normal : le dossier était authentique, les
+phrases s'y retrouvaient mot pour mot. Il était simplement d'une autre ville.
+Aucune vérification de citation n'attrape cette erreur-là — elle se joue avant,
+au choix de la source.
+
+`findCityTitle` refuse désormais une page d'homonymie et rend `null` : la
+fonction s'arrête alors sur « Ancrage documentaire indisponible » plutôt que de
+raconter une autre ville. Pour lever l'ambiguïté, passer le titre complet dans
+`city` — `{"city":"Saint-Paul (La Réunion)"}` — l'affichage se corrige ensuite
+en base, `city` ne servant qu'à ça.
+
+**Trouver les sources d'une commune sans monuments classés.** Le repli par
+expression régulière sur les liens de la page ville suppose un patrimoine qui se
+nomme « église », « château » ou « halles ». Saint-Paul de La Réunion n'en
+rendait que sept articles, tous déjà exploités, et le dossier revenait vide
+alors que la matière existait. Deux sources s'ajoutent donc aux catégories de
+monuments : la catégorie de la commune elle-même, et surtout une **recherche
+géographique** (`list=geosearch`, 10 km autour des coordonnées de l'article de
+la ville). Cette dernière ne repose ni sur un nom ni sur un lien : un article est
+retenu parce que son sujet se trouve là. Elle a rendu une trentaine d'articles à
+Saint-Paul — l'attaque de 1809, la poudrière de 1724, le pont de l'Étang,
+l'observatoire du Maïdo. Les découpages administratifs (cantons, arrondissement,
+unité urbaine) sont écartés comme les pages de liste : ils énumèrent.
+
 **Sur le volume attendu.** Aucune source ne fournit 365 anecdotes par an sur une
 commune moyenne. Compter quelques dizaines d'anecdotes racontables par ville,
 tous supports confondus — le rythme quotidien suppose donc d'élargir le
