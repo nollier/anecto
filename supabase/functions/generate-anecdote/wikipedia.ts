@@ -17,6 +17,15 @@
 //      neuf. Sans cela le modèle revenait indéfiniment au même monument, et
 //      trente anecdotes par ville étaient hors d'atteinte.
 //
+//   3. Le patrimoine bâti n'est pas le seul axe. Les trente anecdotes de
+//      Bordeaux sortaient toutes de la recherche par monument : basiliques,
+//      fontaines, cimetières, gare, châteaux d'eau. Le corpus tournait bien
+//      d'un bâtiment à l'autre, mais jamais d'un sujet à l'autre — un lecteur
+//      qui a lu vingt façades ne revient pas pour la vingt-et-unième.
+//      L'axe `personnalites` ouvre un second gisement, celui des gens : les catégories de
+//      naissance, de décès et de personnalité liée rendent des articles aussi
+//      datés que ceux des monuments, et racontent autre chose.
+//
 // API MediaWiki : gratuite, sans clé. Elle applique en revanche une limite de
 // débit — d'où le nombre volontairement réduit de requêtes par dossier.
 
@@ -32,6 +41,15 @@ const MAX_CHARS_PER_DOC = 10000;
 // s'éparpille et le coût des deux passes augmente sans gain de qualité.
 const MAX_ARTICLES = 7;
 const TIMEOUT_MS = 15000;
+
+/**
+ * L'axe de recherche du dossier.
+ *
+ * `patrimoine` est l'historique et reste le défaut : aucun appel existant ne
+ * change de comportement. `personnalites` sert à sortir une ville de l'ornière
+ * quand son corpus ne parle plus que de pierres.
+ */
+export type Axe = 'patrimoine' | 'personnalites';
 
 // Repli quand la commune n'a ni catégorie ni liste de monuments : on filtre
 // alors les liens de la page ville, comme avant.
@@ -151,6 +169,55 @@ async function trouverMonuments(cityTitle: string): Promise<string[]> {
   return [...new Set(utiles)];
 }
 
+/** Mélange une liste sur place, puis la rend. Fisher-Yates. */
+function melanger<T>(liste: T[]): T[] {
+  for (let i = liste.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [liste[i], liste[j]] = [liste[j], liste[i]];
+  }
+  return liste;
+}
+
+/**
+ * Les personnalités candidates, de la plus sûre à la moins sûre.
+ *
+ * Les quatre gisements ne se valent pas. La liste rédigée et la catégorie
+ * « Personnalité liée à » sont tenues à la main : ce qui s'y trouve a été jugé
+ * digne d'y être. Les catégories de décès et de naissance, elles, ramassent
+ * tout — pour Bordeaux, plus de mille entrées dont l'essentiel est des
+ * sportifs contemporains dont l'article tient en un palmarès.
+ *
+ * D'où l'ordre, et d'où le mélange à l'intérieur de chaque rang : sans lui,
+ * `cmlimit` rendrait éternellement la même tranche alphabétique et le dossier
+ * repartirait chaque fois des mêmes noms. Le décès passe avant la naissance
+ * parce qu'une vie achevée dans la ville a laissé une tombe, une plaque ou une
+ * rue — de quoi ouvrir sur un geste d'aujourd'hui, ce que le prompt réclame.
+ */
+async function trouverPersonnalites(cityTitle: string): Promise<string[]> {
+  const [liste, liees, deces, naissances] = await Promise.all([
+    liens(`Liste de personnalités liées à ${cityTitle}`),
+    membresCategorie(`Catégorie:Personnalité liée à ${cityTitle}`),
+    membresCategorie(`Catégorie:Décès à ${cityTitle}`),
+    membresCategorie(`Catégorie:Naissance à ${cityTitle}`),
+  ]);
+
+  const candidats = [
+    ...melanger(liste),
+    ...melanger(liees),
+    ...melanger(deces),
+    ...melanger(naissances),
+  ];
+
+  // Mêmes exclusions que pour les monuments, plus celle des monuments
+  // eux-mêmes : la liste de personnalités liées renvoie aussi vers les lieux
+  // qui portent leur nom, et on les traite déjà par l'autre axe.
+  const utiles = candidats.filter(
+    (t) => !/^(liste|catégorie)\b/i.test(t) && !PATRIMOINE.test(t)
+  );
+
+  return [...new Set(utiles)];
+}
+
 /**
  * Extrait en texte brut d'un seul article. Page absente ou trop maigre : null.
  *
@@ -196,32 +263,54 @@ async function fetchExtract(title: string): Promise<SourceDoc | null> {
 /**
  * @param exclure titres d'articles déjà exploités par des anecdotes existantes.
  *                C'est ce paramètre qui fait tourner le dossier.
+ * @param axe     le gisement dans lequel puiser. Défaut `patrimoine`, qui est
+ *                le comportement d'origine.
  */
 export async function fetchWikipediaDocs(
   city: string,
-  exclure: string[] = []
+  exclure: string[] = [],
+  axe: Axe = 'patrimoine'
 ): Promise<SourceDoc[]> {
   const cityTitle = await findCityTitle(city);
   if (!cityTitle) return [];
 
   const dejaVus = new Set(exclure.map((t) => t.toLowerCase()));
 
-  let monuments: string[] = [];
+  let sujets: string[] = [];
   try {
-    monuments = await trouverMonuments(cityTitle);
+    sujets =
+      axe === 'personnalites'
+        ? await trouverPersonnalites(cityTitle)
+        : await trouverMonuments(cityTitle);
   } catch (err) {
-    console.error('Wikipédia monuments', err);
+    console.error(`Wikipédia ${axe}`, err);
   }
 
-  const neufs = monuments.filter((t) => !dejaVus.has(t.toLowerCase()));
+  const neufs = sujets.filter((t) => !dejaVus.has(t.toLowerCase()));
 
   // Quand tous les monuments ont servi, on revient sur l'article de la ville et
   // son histoire : ils restent riches, et c'est préférable à un dossier vide.
-  const contexte = [cityTitle, `Histoire de ${cityTitle}`].filter(
-    (t) => neufs.length === 0 || !dejaVus.has(t.toLowerCase())
-  );
+  //
+  // Pas sur l'axe des personnalités : ces deux articles-là ne parlent que de
+  // pierres et de démographie, et les glisser dans un dossier de biographies
+  // suffirait à ramener le modèle au monument — c'est précisément ce à quoi
+  // l'axe sert à échapper. Un dossier vide est alors la bonne réponse : il
+  // remonte en clair dans `skipped`, plutôt que de rendre une trente-et-unième
+  // façade sous couvert de sujet neuf.
+  const contexte =
+    axe === 'personnalites'
+      ? []
+      : [cityTitle, `Histoire de ${cityTitle}`].filter(
+          (t) => neufs.length === 0 || !dejaVus.has(t.toLowerCase())
+        );
 
-  const titres = [...new Set([...neufs.slice(0, MAX_ARTICLES), ...contexte])];
+  // Deux fois plus de candidats sur l'axe des personnalités : `fetchExtract`
+  // écarte les articles de moins de 1200 caractères, et les catégories de
+  // naissance en sont pleines. Sans cette marge, un dossier de sept noms en
+  // rendait deux.
+  const combien = axe === 'personnalites' ? MAX_ARTICLES * 2 : MAX_ARTICLES;
+
+  const titres = [...new Set([...neufs.slice(0, combien), ...contexte])];
   if (titres.length === 0) return [];
 
   const resultats = await Promise.allSettled(titres.map(fetchExtract));

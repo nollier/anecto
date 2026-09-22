@@ -19,13 +19,19 @@
 // signe que le modèle a inventé. Ce qui survit reste malgré tout en `draft`,
 // parce qu'un extrait Wikipédia n'est pas une validation éditoriale.
 //
+// Le corps de la requête accepte `axe` : `patrimoine` (défaut, le
+// comportement d'origine) ou `personnalites`. Il choisit le gisement
+// Wikipédia du dossier, et avec lui ce dont l'anecdote parlera. Une ville
+// dont les trente anecdotes décrivent toutes une façade se relance sur
+// l'autre axe sans que rien d'autre ne bouge.
+//
 // Appel protégé par un secret partagé (en-tête x-anecto-admin-secret) :
 // la fonction coûte de l'argent à chaque exécution et n'est pas destinée à
 // être appelée depuis l'app.
 
 import { createClient } from 'npm:@supabase/supabase-js@^2';
 import { chatJSON, DEEPSEEK_MODEL, DeepSeekError } from './deepseek.ts';
-import { fetchWikipediaDocs } from './wikipedia.ts';
+import { type Axe, fetchWikipediaDocs } from './wikipedia.ts';
 import { fetchPatrimoineDocs } from './patrimoine.ts';
 import type { SourceDoc } from './sources.ts';
 import { controler, normalize } from './verification.ts';
@@ -74,10 +80,13 @@ function budget(docs: SourceDoc[], max: number): SourceDoc[] {
  * Le dossier soumis au modèle. Les deux sources sont interrogées en parallèle
  * et indépendamment : si l'une échoue, l'autre fait le travail.
  */
-async function buildDossier(city: string, exclure: string[]): Promise<SourceDoc[]> {
+async function buildDossier(city: string, exclure: string[], axe: Axe): Promise<SourceDoc[]> {
+  // Mérimée ne décrit que des immeubles protégés : sur l'axe des
+  // personnalités, ses notices n'apportent rien et occupent 12 000 caractères
+  // du dossier. On ne l'interroge pas, et on économise l'appel.
   const [wiki, merimee] = await Promise.allSettled([
-    fetchWikipediaDocs(city, exclure),
-    fetchPatrimoineDocs(city),
+    fetchWikipediaDocs(city, exclure, axe),
+    axe === 'personnalites' ? Promise.resolve([]) : fetchPatrimoineDocs(city),
   ]);
 
   if (wiki.status === 'rejected') console.error('Wikipédia', wiki.reason);
@@ -91,9 +100,25 @@ async function buildDossier(city: string, exclure: string[]): Promise<SourceDoc[
 
 // ---------------------------------------------------------------- passe 1
 
-const REDACTION_SYSTEM = `Tu racontes des histoires vraies d'histoire locale à partir d'un dossier documentaire qu'on te fournit. Tu ne disposes d'aucune autre source, et ta mémoire ne fait pas foi : tout ce que tu écris doit se trouver dans le dossier.
+// Le seul passage qui change d'un axe à l'autre. Le reste du prompt — forme,
+// temps, interdits, format json — vaut pour les deux : ce qu'on change, c'est
+// ce qu'on cherche dans le dossier, pas la manière de le raconter.
+//
+// Sans cette substitution, un dossier de biographies rendait quand même des
+// anecdotes de bâtiment : le modèle suivait la liste de sujets du prompt, y
+// pêchait « un usage oublié d'un bâtiment », et allait le chercher dans la
+// seule phrase de l'article qui mentionnait une adresse.
+const SUJETS: Record<Axe, string> = {
+  patrimoine:
+    "Ce qui fait un bon sujet : une coutume disparue, un épisode historique daté, l'origine d'un toponyme, un usage oublié d'un bâtiment, une prouesse technique, un objet qui a survécu. Pas de généralité géographique, pas de guide touristique, pas de démographie.",
+  personnalites:
+    "Le dossier porte sur des gens, et c'est d'eux qu'il faut parler. Ce qui fait un bon sujet : un épisode daté de la vie de quelqu'un, un métier qu'on ne fait plus, une décision qui a coûté cher, une rencontre, une œuvre et ce qu'elle est devenue, ce qui porte encore son nom dans la ville. Une biographie n'est pas une anecdote : ne déroule pas une vie de la naissance à la mort, prends un épisode et raconte-le. Pas de palmarès, pas de liste d'œuvres, pas de généralité géographique, pas de guide touristique, pas de démographie.",
+};
 
-Ce qui fait un bon sujet : une coutume disparue, un épisode historique daté, l'origine d'un toponyme, un usage oublié d'un bâtiment, une prouesse technique, un objet qui a survécu. Pas de généralité géographique, pas de guide touristique, pas de démographie.
+const redactionSystem = (axe: Axe) =>
+  `Tu racontes des histoires vraies d'histoire locale à partir d'un dossier documentaire qu'on te fournit. Tu ne disposes d'aucune autre source, et ta mémoire ne fait pas foi : tout ce que tu écris doit se trouver dans le dossier.
+
+${SUJETS[axe]}
 
 FORME ATTENDUE
 
@@ -228,11 +253,12 @@ async function generateOne(
   apiKey: string,
   city: string,
   docs: SourceDoc[],
-  existingTitles: string[]
+  existingTitles: string[],
+  axe: Axe
 ): Promise<Resultat> {
   const redaction = await chatJSON<Redaction>({
     apiKey,
-    system: REDACTION_SYSTEM,
+    system: redactionSystem(axe),
     user: redactionPrompt(city, docs, existingTitles),
     // Le dossier borne déjà le contenu ; un peu de liberté sert seulement à
     // ne pas ressortir toujours le même passage.
@@ -334,6 +360,10 @@ Deno.serve(async (req) => {
   const city = typeof body.city === 'string' ? body.city.trim() : '';
   const cityPlaceId = typeof body.cityPlaceId === 'string' ? body.cityPlaceId : null;
   const count = Math.min(Math.max(Number(body.count) || 1, 1), MAX_COUNT);
+  // Une valeur inconnue retombe sur `patrimoine` plutôt que d'échouer : les
+  // appelants existants — `produire_lot`, `produire_villes_demandees` — n'en
+  // envoient aucune, et c'est leur comportement d'hier qu'il faut préserver.
+  const axe: Axe = body.axe === 'personnalites' ? 'personnalites' : 'patrimoine';
 
   if (!city) {
     return fail('Paramètre `city` manquant.');
@@ -364,7 +394,7 @@ Deno.serve(async (req) => {
 
   let docs: SourceDoc[];
   try {
-    docs = await buildDossier(city, articlesExploites);
+    docs = await buildDossier(city, articlesExploites, axe);
   } catch (err) {
     console.error('Dossier', err);
     return json(
@@ -379,7 +409,7 @@ Deno.serve(async (req) => {
     return json({
       created: 0,
       skipped: [
-        `Aucune source neuve pour « ${city} » : les ${articlesExploites.length} articles disponibles ont tous été exploités.`,
+        `Aucune source neuve pour « ${city} » sur l'axe ${axe} : les ${articlesExploites.length} articles disponibles ont tous été exploités.`,
       ],
       anecdotes: [],
     });
@@ -390,7 +420,7 @@ Deno.serve(async (req) => {
   for (let i = 0; i < count; i++) {
     let result: Resultat;
     try {
-      result = await generateOne(DEEPSEEK_API_KEY, city, docs, titles);
+      result = await generateOne(DEEPSEEK_API_KEY, city, docs, titles, axe);
     } catch (err) {
       const message = err instanceof DeepSeekError ? err.message : String(err);
       console.error('DeepSeek', message);
@@ -461,7 +491,12 @@ Deno.serve(async (req) => {
         // reformulation du prompt.
         verdict: verification.verdict,
         verification_notes: notes,
-        generated_by: `deepseek:${DEEPSEEK_MODEL} + ${[...new Set(docs.map((d) => d.origine))].join('+')}`,
+        // L'axe n'apparaît que lorsqu'il n'est pas celui d'origine : les
+        // 552 lignes déjà en base gardent leur libellé exact, et une requête
+        // sur `generated_by` suffit à retrouver ce qui vient des gens.
+        generated_by: `deepseek:${DEEPSEEK_MODEL} + ${[...new Set(docs.map((d) => d.origine))].join('+')}${
+          axe === 'personnalites' ? ' (axe personnalités)' : ''
+        }`,
         status: 'draft',
       })
       .select()
