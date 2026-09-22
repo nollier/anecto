@@ -234,12 +234,32 @@ curl -X POST "https://swvhclxwchrhyhtrvmhb.supabase.co/functions/v1/generate-ane
   -d '{"city":"Saint-Malo","cityPlaceId":"ChIJ...","count":3}'
 ```
 
+Un cinquième paramètre, `axe`, choisit le gisement Wikipédia :
+`patrimoine` (défaut, le comportement d'origine) ou `personnalites`.
+
+```bash
+  -d '{"city":"Bordeaux","cityPlaceId":"ChIJ...","count":10,"axe":"personnalites"}'
+```
+
+Il existe parce qu'une ville peut avoir du stock et n'avoir qu'un sujet. Les
+trente premières anecdotes de Bordeaux sortaient toutes de la recherche par
+monument : basiliques, fontaines, cimetières, gare, châteaux d'eau. Le dossier
+tournait bien d'un bâtiment à l'autre, jamais d'un sujet à l'autre. Sur l'axe
+`personnalites`, le dossier est bâti sur « Liste de personnalités liées à
+<ville> », « Catégorie:Personnalité liée à <ville> », « Catégorie:Décès à
+<ville> » et « Catégorie:Naissance à <ville> » ; Mérimée n'est pas interrogée,
+ses notices ne décrivant que des immeubles ; et la consigne de sujet donnée au
+modèle change avec lui. Les lignes produites portent `(axe personnalités)` dans
+`generated_by`, ce qui suffit à les retrouver.
+
 Le modèle n'écrit jamais de mémoire. Quatre étapes :
 
 1. **ancrage** — deux sources gratuites et sans clé, interrogées en parallèle :
    - **Wikipédia** : l'article de la ville, « Histoire de <ville> », « Liste des
      monuments historiques de <ville> », et jusqu'à six articles **liés** au
-     patrimoine (églises, châteaux, forts, halles…). C'est là qu'est le volume :
+     patrimoine (églises, châteaux, forts, halles…) — ou, sur l'axe
+     `personnalites`, jusqu'à quatorze articles de gens nés, morts ou liés à la
+     ville. C'est là qu'est le volume :
      l'article général d'une commune noie trois lignes d'histoire dans la
      démographie, l'article de son château en contient dix fois plus.
    - **Base Mérimée** (Plateforme ouverte du patrimoine) : une notice par
