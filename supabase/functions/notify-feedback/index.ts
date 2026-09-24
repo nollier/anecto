@@ -13,15 +13,22 @@
 // été signalé ne l'est pas deux fois, et ce qui a échoué — fonction en panne,
 // SMTP indisponible — repart au passage suivant plutôt que d'être perdu.
 //
+// Chaque retour reçoit aussi un brouillon de réponse (API Anthropic) et un
+// lien à usage unique vers `feedback-envoyer`. Cliquer ce lien ouvre une page
+// de confirmation ; seul le bouton (POST) envoie réellement la réponse au
+// lecteur. On ne parle jamais au lecteur depuis cette fonction.
+//
 // Protégée par le même secret partagé que les autres fonctions d'exploitation.
 
 import { createClient } from 'npm:@supabase/supabase-js@^2';
 import { envoyer, lireReglages } from './mail.ts';
 import { corsHeaders, fail, json } from './http.ts';
+import { genererBrouillon } from './anthropic.ts';
 
 const ADMIN_SECRET = Deno.env.get('ANECTO_ADMIN_SECRET');
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');
 
 // Au-delà, l'email devient illisible ; le reste part au passage suivant.
 const MAX_PAR_ENVOI = 25;
@@ -32,6 +39,14 @@ const LIBELLES: Record<string, string> = {
   adore: "J'adore",
 };
 
+// Phrasé pour le prompt de génération ("a laissé ... à propos de"), distinct
+// des libellés d'affichage ci-dessus.
+const LIBELLES_PROMPT: Record<string, string> = {
+  propose: 'une proposition',
+  incomplete: 'une correction',
+  adore: 'un message enthousiaste',
+};
+
 interface Retour {
   id: string;
   type: string;
@@ -40,6 +55,52 @@ interface Retour {
   auteur: string | null;
   anecdote_titre: string | null;
   anecdote_ville: string | null;
+  reponse_brouillon: string | null;
+  reponse_token: string;
+}
+
+function lienReponse(retour: Retour): string {
+  return `${SUPABASE_URL}/functions/v1/feedback-envoyer?token=${retour.reponse_token}`;
+}
+
+/**
+ * Remplit `reponse_brouillon` pour les retours qui n'en ont pas encore, sans
+ * bloquer l'alerte si l'API est indisponible ou la clé absente : un retour
+ * sans brouillon reste signalé quand même, juste sans lien de réponse rapide.
+ */
+async function completerBrouillons(
+  supabase: ReturnType<typeof createClient>,
+  retours: Retour[]
+): Promise<void> {
+  if (!ANTHROPIC_API_KEY) return;
+
+  for (const retour of retours) {
+    if (retour.reponse_brouillon || !retour.auteur) continue;
+
+    try {
+      const brouillon = await genererBrouillon(ANTHROPIC_API_KEY, {
+        libelle: LIBELLES_PROMPT[retour.type] ?? retour.type,
+        comment: retour.comment,
+        anecdote_titre: retour.anecdote_titre,
+        anecdote_ville: retour.anecdote_ville,
+      });
+
+      const { error } = await supabase
+        .from('feedback')
+        .update({ reponse_brouillon: brouillon })
+        .eq('id', retour.id);
+
+      if (error) {
+        console.error(`Enregistrement du brouillon ${retour.id}`, error);
+        continue;
+      }
+
+      retour.reponse_brouillon = brouillon;
+    } catch (err) {
+      // Ce retour repartira sans brouillon ; l'alerte n'en dépend pas.
+      console.error(`Génération du brouillon ${retour.id}`, err);
+    }
+  }
 }
 
 function echapper(texte: string): string {
@@ -56,6 +117,7 @@ function corps(retours: Retour[]): { texte: string; html: string } {
     const contexte = r.anecdote_titre
       ? `${r.anecdote_ville ?? ''} — « ${r.anecdote_titre} »`
       : 'sans anecdote associée';
+    const lien = r.reponse_brouillon ? lienReponse(r) : null;
 
     return {
       texte: [
@@ -64,6 +126,9 @@ function corps(retours: Retour[]): { texte: string; html: string } {
         `Le : ${new Date(r.created_at).toLocaleString('fr-FR', { timeZone: 'Europe/Paris' })}`,
         '',
         r.comment ?? '(sans commentaire)',
+        ...(r.reponse_brouillon
+          ? ['', 'Brouillon de réponse :', r.reponse_brouillon, '', `Envoyer : ${lien}`]
+          : ['', "(brouillon indisponible — ANTHROPIC_API_KEY absente, auteur inconnu, ou génération échouée)"]),
       ].join('\n'),
       html: `<div style="margin:0 0 28px;padding:0 0 24px;border-bottom:1px solid #eee">
   <div style="font-size:13px;color:#888">${echapper(contexte)}</div>
@@ -72,6 +137,15 @@ function corps(retours: Retour[]): { texte: string; html: string } {
   <div style="font-size:12px;color:#999;margin-top:10px">${echapper(r.auteur ?? 'auteur inconnu')} · ${echapper(
         new Date(r.created_at).toLocaleString('fr-FR', { timeZone: 'Europe/Paris' })
       )}</div>
+  ${
+    r.reponse_brouillon
+      ? `<div style="margin-top:14px;padding:12px 14px;background:#faf6f2;border-left:3px solid #b3402f">
+    <div style="font-size:12px;color:#999;margin-bottom:6px">Brouillon de réponse</div>
+    <div style="font-size:14px;line-height:1.5;white-space:pre-wrap">${echapper(r.reponse_brouillon)}</div>
+    <div style="margin-top:10px"><a href="${lien}" style="color:#b3402f;font-weight:600">Envoyer cette réponse →</a></div>
+  </div>`
+      : `<div style="margin-top:10px;font-size:12px;color:#bbb">Brouillon indisponible</div>`
+  }
 </div>`,
     };
   });
@@ -119,6 +193,8 @@ Deno.serve(async (req) => {
   if (retours.length === 0) {
     return json({ envoyes: 0 });
   }
+
+  await completerBrouillons(supabase, retours);
 
   const { texte, html } = corps(retours);
   const pluriel = retours.length > 1 ? 's' : '';

@@ -26,3 +26,8 @@ verify_jwt = false
 # comparés à ses secrets — d'où verify_jwt à false.
 [functions.review-login]
 verify_jwt = false
+
+# Ouverte depuis un lien de mail par un humain, sans session Supabase : le
+# jeton à usage unique dans l'URL tient lieu d'authentification.
+[functions.feedback-envoyer]
+verify_jwt = false
