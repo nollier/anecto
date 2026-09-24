@@ -15,9 +15,9 @@
 //
 // Chaque retour reçoit aussi un brouillon de réponse (DeepSeek, la même API
 // que generate-anecdote) et un lien à usage unique vers `feedback-envoyer`.
-// Cliquer ce lien ouvre une page de confirmation ; seul le bouton (POST)
-// envoie réellement la réponse au lecteur. On ne parle jamais au lecteur
-// depuis cette fonction.
+// Ce premier lien affiche le brouillon sans effet de bord, avec un second
+// lien de confirmation (jamais présent dans cet email) pour envoyer
+// réellement. On ne parle jamais au lecteur depuis cette fonction.
 //
 // Protégée par le même secret partagé que les autres fonctions d'exploitation.
 
@@ -128,7 +128,7 @@ function corps(retours: Retour[]): { texte: string; html: string } {
         '',
         r.comment ?? '(sans commentaire)',
         ...(r.reponse_brouillon
-          ? ['', 'Brouillon de réponse :', r.reponse_brouillon, '', `Envoyer : ${lien}`]
+          ? ['', 'Brouillon de réponse :', r.reponse_brouillon, '', `Voir et valider : ${lien}`]
           : ['', "(brouillon indisponible — DEEPSEEK_API_KEY absente, auteur inconnu, ou génération échouée)"]),
       ].join('\n'),
       html: `<div style="margin:0 0 28px;padding:0 0 24px;border-bottom:1px solid #eee">
@@ -143,7 +143,7 @@ function corps(retours: Retour[]): { texte: string; html: string } {
       ? `<div style="margin-top:14px;padding:12px 14px;background:#faf6f2;border-left:3px solid #b3402f">
     <div style="font-size:12px;color:#999;margin-bottom:6px">Brouillon de réponse</div>
     <div style="font-size:14px;line-height:1.5;white-space:pre-wrap">${echapper(r.reponse_brouillon)}</div>
-    <div style="margin-top:10px"><a href="${lien}" style="color:#b3402f;font-weight:600">Envoyer cette réponse →</a></div>
+    <div style="margin-top:10px"><a href="${lien}" style="color:#b3402f;font-weight:600">Voir et valider →</a></div>
   </div>`
       : `<div style="margin-top:10px;font-size:12px;color:#bbb">Brouillon indisponible</div>`
   }
