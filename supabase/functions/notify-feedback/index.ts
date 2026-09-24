@@ -13,22 +13,23 @@
 // été signalé ne l'est pas deux fois, et ce qui a échoué — fonction en panne,
 // SMTP indisponible — repart au passage suivant plutôt que d'être perdu.
 //
-// Chaque retour reçoit aussi un brouillon de réponse (API Anthropic) et un
-// lien à usage unique vers `feedback-envoyer`. Cliquer ce lien ouvre une page
-// de confirmation ; seul le bouton (POST) envoie réellement la réponse au
-// lecteur. On ne parle jamais au lecteur depuis cette fonction.
+// Chaque retour reçoit aussi un brouillon de réponse (DeepSeek, la même API
+// que generate-anecdote) et un lien à usage unique vers `feedback-envoyer`.
+// Cliquer ce lien ouvre une page de confirmation ; seul le bouton (POST)
+// envoie réellement la réponse au lecteur. On ne parle jamais au lecteur
+// depuis cette fonction.
 //
 // Protégée par le même secret partagé que les autres fonctions d'exploitation.
 
 import { createClient } from 'npm:@supabase/supabase-js@^2';
 import { envoyer, lireReglages } from './mail.ts';
 import { corsHeaders, fail, json } from './http.ts';
-import { genererBrouillon } from './anthropic.ts';
+import { genererBrouillon } from './deepseek.ts';
 
 const ADMIN_SECRET = Deno.env.get('ANECTO_ADMIN_SECRET');
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');
+const DEEPSEEK_API_KEY = Deno.env.get('DEEPSEEK_API_KEY');
 
 // Au-delà, l'email devient illisible ; le reste part au passage suivant.
 const MAX_PAR_ENVOI = 25;
@@ -72,13 +73,13 @@ async function completerBrouillons(
   supabase: ReturnType<typeof createClient>,
   retours: Retour[]
 ): Promise<void> {
-  if (!ANTHROPIC_API_KEY) return;
+  if (!DEEPSEEK_API_KEY) return;
 
   for (const retour of retours) {
     if (retour.reponse_brouillon || !retour.auteur) continue;
 
     try {
-      const brouillon = await genererBrouillon(ANTHROPIC_API_KEY, {
+      const brouillon = await genererBrouillon(DEEPSEEK_API_KEY, {
         libelle: LIBELLES_PROMPT[retour.type] ?? retour.type,
         comment: retour.comment,
         anecdote_titre: retour.anecdote_titre,
@@ -128,7 +129,7 @@ function corps(retours: Retour[]): { texte: string; html: string } {
         r.comment ?? '(sans commentaire)',
         ...(r.reponse_brouillon
           ? ['', 'Brouillon de réponse :', r.reponse_brouillon, '', `Envoyer : ${lien}`]
-          : ['', "(brouillon indisponible — ANTHROPIC_API_KEY absente, auteur inconnu, ou génération échouée)"]),
+          : ['', "(brouillon indisponible — DEEPSEEK_API_KEY absente, auteur inconnu, ou génération échouée)"]),
       ].join('\n'),
       html: `<div style="margin:0 0 28px;padding:0 0 24px;border-bottom:1px solid #eee">
   <div style="font-size:13px;color:#888">${echapper(contexte)}</div>
