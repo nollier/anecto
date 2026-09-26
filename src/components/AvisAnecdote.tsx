@@ -10,6 +10,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
+import { proposerAvisMagasin } from '../lib/avisMagasin';
 import { Anecdote, FeedbackType } from '../types';
 
 /** Le champ libre sert aux corrections comme aux propositions. */
@@ -118,7 +119,10 @@ export default function AvisAnecdote({ anecdote, scrollRef }: Props) {
         'Merci !',
         type === 'propose'
           ? 'Ta proposition part en relecture.'
-          : 'Ton retour a bien été enregistré.'
+          : 'Ton retour a bien été enregistré.',
+        // Un « J'adore » est le meilleur moment pour proposer une note sur le
+        // magasin — après le remerciement, jamais par-dessus.
+        [{ text: 'OK', onPress: type === 'adore' ? proposerAvisMagasin : undefined }]
       );
     } finally {
       envoiEnCours.current = false;

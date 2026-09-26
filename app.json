@@ -17,6 +17,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "fr.anecto.app",
+      "appStoreUrl": "https://apps.apple.com/fr/app/anecto/id6804257118",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "CFBundleDevelopmentRegion": "fr",
@@ -25,6 +26,7 @@
     },
     "android": {
       "package": "fr.anecto.app",
+      "playStoreUrl": "https://play.google.com/store/apps/details?id=fr.anecto.app",
       "googleServicesFile": "./google-services.json",
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {

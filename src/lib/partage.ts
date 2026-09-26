@@ -1,5 +1,8 @@
 import { Alert, Share } from 'react-native';
+import * as Sharing from 'expo-sharing';
 import { Anecdote } from '../types';
+import { monCodeParrainage } from './parrainage';
+import { proposerAvisMagasin } from './avisMagasin';
 
 /**
  * Page d'atterrissage du partage.
@@ -13,6 +16,21 @@ import { Anecdote } from '../types';
 export const PAGE_TELECHARGEMENT = 'https://nollier.github.io/anecto/telecharger/';
 
 /**
+ * Le lien vers la page de téléchargement, marqué de son canal et du code du
+ * lecteur qui le partage.
+ *
+ * `src` dit par où le visiteur est arrivé, `p` qui l'a invité. La page les
+ * compte, puis les transmet à Google Play dans le référent d'installation,
+ * que l'app relit au premier lancement. Sans code — hors ligne, session
+ * perdue — le lien reste valable, il n'est simplement rattaché à personne.
+ */
+export function lienTelechargement(source: string, code: string | null): string {
+  const params = new URLSearchParams({ src: source });
+  if (code) params.set('p', code);
+  return `${PAGE_TELECHARGEMENT}?${params.toString()}`;
+}
+
+/**
  * L'invitation qui clôt tout partage.
  *
  * Elle est indispensable : l'anecdote voyage en texte brut, hors de
@@ -20,9 +38,12 @@ export const PAGE_TELECHARGEMENT = 'https://nollier.github.io/anecto/telecharger
  * cette phrase, il lit une anecdote sans jamais savoir d'où elle vient ni
  * comment en recevoir d'autres.
  */
-const INVITATION =
-  "Partagée depuis Anecto, qui envoie chaque jour une anecdote vraie et vérifiée sur ta ville.\n" +
-  `Crée ton compte gratuit pour retrouver celle-ci et toutes les autres : ${PAGE_TELECHARGEMENT}`;
+function invitation(code: string | null): string {
+  return (
+    "Partagée depuis Anecto, qui envoie chaque jour une anecdote vraie et vérifiée sur ta ville.\n" +
+    `Crée ton compte gratuit pour retrouver celle-ci et toutes les autres : ${lienTelechargement('partage', code)}`
+  );
+}
 
 /**
  * Le texte partagé : l'anecdote entière, sa source, puis l'invitation.
@@ -33,7 +54,7 @@ const INVITATION =
  * choisie par un lecteur — là où l'ouverture de la lecture publique en base
  * l'exposerait en bloc.
  */
-export function texteDePartage(anecdote: Anecdote): string {
+export function texteDePartage(anecdote: Anecdote, code: string | null = null): string {
   const entete = [`📖 ${anecdote.city}`, anecdote.period].filter(Boolean).join(' · ');
 
   // Comme à l'écran : l'accroche porte le titre, avec repli sur l'étiquette
@@ -46,7 +67,7 @@ export function texteDePartage(anecdote: Anecdote): string {
     ? `Source : ${anecdote.source}\n${anecdote.source_url}`
     : `Source : ${anecdote.source}`;
 
-  return [entete, '', titre, '', anecdote.body, '', source, '', INVITATION].join('\n');
+  return [entete, '', titre, '', anecdote.body, '', source, '', invitation(code)].join('\n');
 }
 
 /**
@@ -58,17 +79,68 @@ export function texteDePartage(anecdote: Anecdote): string {
  */
 export async function partagerAnecdote(anecdote: Anecdote): Promise<void> {
   const titre = anecdote.hook || anecdote.title;
+  const code = await monCodeParrainage();
 
   try {
-    await Share.share(
-      { message: texteDePartage(anecdote), title: titre },
+    const resultat = await Share.share(
+      { message: texteDePartage(anecdote, code), title: titre },
       // `subject` sert d'objet quand la destination est un e-mail, `dialogTitle`
       // titre le sélecteur Android.
       { subject: `Anecto · ${titre}`, dialogTitle: 'Partager cette anecdote' }
     );
+    // Qui vient d'envoyer une anecdote à un proche l'a aimée : c'est l'un des
+    // deux moments où l'on propose de noter l'app. Sur Android, le système
+    // répond « partagé » même si le sélecteur a été refermé sans choix.
+    if (resultat.action === Share.sharedAction) proposerAvisMagasin();
   } catch (erreur) {
     // Un partage abandonné n'est pas une erreur : la promesse se résout, on ne
     // passe ici que si le système a réellement échoué à ouvrir la feuille.
+    console.error(erreur);
+    Alert.alert('Partage impossible', 'Réessaie dans un instant.');
+  }
+}
+
+/**
+ * Partage l'image d'une anecdote, déjà capturée dans un fichier local.
+ *
+ * `Share` de React Native ne sait pas envoyer un fichier sur Android, d'où
+ * `expo-sharing` : c'est lui qui fait apparaître Instagram, WhatsApp ou les
+ * stories dans le sélecteur. Le lien ne voyage pas avec l'image — aucune
+ * destination ne garde les deux — c'est l'image elle-même qui nomme l'app.
+ */
+export async function partagerImage(uri: string): Promise<void> {
+  try {
+    if (!(await Sharing.isAvailableAsync())) {
+      Alert.alert('Partage impossible', "Cet appareil ne permet pas de partager une image.");
+      return;
+    }
+    await Sharing.shareAsync(uri, {
+      mimeType: 'image/png',
+      UTI: 'public.png',
+      dialogTitle: 'Partager cette anecdote',
+    });
+  } catch (erreur) {
+    console.error(erreur);
+    Alert.alert('Partage impossible', 'Réessaie dans un instant.');
+  }
+}
+
+/**
+ * L'invitation seule, sans anecdote : le bouton « Inviter » des Réglages.
+ */
+export async function partagerInvitation(): Promise<void> {
+  const code = await monCodeParrainage();
+  const message =
+    "Je lis chaque jour une anecdote vraie et vérifiée sur ma ville avec Anecto. " +
+    `C'est gratuit, sans publicité : ${lienTelechargement('parrainage', code)}` +
+    (code ? `\nSur iPhone, saisis mon code ${code} dans les Réglages de l'app.` : '');
+
+  try {
+    await Share.share(
+      { message, title: 'Anecto' },
+      { subject: 'Une anecdote sur ta ville, chaque jour', dialogTitle: 'Inviter un proche' }
+    );
+  } catch (erreur) {
     console.error(erreur);
     Alert.alert('Partage impossible', 'Réessaie dans un instant.');
   }

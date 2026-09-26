@@ -11,6 +11,7 @@ import type { Session } from '@supabase/supabase-js';
 
 import { supabase } from './src/lib/supabase';
 import { syncPushToken } from './src/lib/notifications';
+import { declarerProvenance } from './src/lib/provenance';
 import HomeScreen from './src/screens/HomeScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import HistoryScreen from './src/screens/HistoryScreen';
@@ -94,6 +95,8 @@ export default function App() {
     // L'identité vient du jeton de session côté base, pas d'ici : `userId` ne
     // sert plus qu'à ne pas resynchroniser deux fois la même session.
     syncPushToken();
+    // Une fois par compte : le canal par lequel le lecteur est arrivé.
+    declarerProvenance(userId);
   }, [session]);
 
   // Un tap sur la notification doit ouvrir l'anecdote, pas l'onglet où
