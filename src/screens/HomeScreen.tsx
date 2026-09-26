@@ -12,8 +12,8 @@ import {
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
-import { partagerAnecdote } from '../lib/partage';
 import AvisAnecdote from '../components/AvisAnecdote';
+import PartageAnecdote from '../components/PartageAnecdote';
 import { Anecdote, Statistiques } from '../types';
 
 /**
@@ -250,13 +250,7 @@ export default function HomeScreen() {
 
       {/* Le partage vient après la source, jamais avant : ce qu'on transmet à
           un proche, c'est l'anecdote et sa preuve, dans cet ordre. */}
-      <TouchableOpacity
-        style={styles.partage}
-        accessibilityRole="button"
-        onPress={() => partagerAnecdote(anecdote)}
-      >
-        <Text style={styles.partageTexte}>↗ Partager cette anecdote</Text>
-      </TouchableOpacity>
+      <PartageAnecdote anecdote={anecdote} />
 
       {/* Le vote n'est pas réservé au jour de l'envoi : le même bloc sert à
           la relecture depuis l'historique, et n'apparaît que si rien n'a
@@ -310,17 +304,6 @@ const styles = StyleSheet.create({
   },
   source: { fontSize: 12, color: '#999', marginTop: 16, fontStyle: 'italic' },
   sourceLink: { fontSize: 12, color: '#007AFF', marginTop: 16 },
-  // Discret : partager est une envie qui vient après la lecture, pas l'action
-  // que l'écran réclame. Un bouton plein le mettrait au-dessus de l'anecdote.
-  partage: {
-    alignSelf: 'flex-start',
-    marginTop: 20,
-    paddingVertical: 9,
-    paddingHorizontal: 14,
-    borderRadius: 9,
-    backgroundColor: '#fbeeeb',
-  },
-  partageTexte: { fontSize: 13, fontWeight: '600', color: '#b3402f' },
   emptyTitle: { fontSize: 20, fontWeight: '700', marginBottom: 12, color: '#1a1a1a' },
   emptyText: { fontSize: 16, textAlign: 'center', color: '#666', lineHeight: 22 },
   cta: { backgroundColor: '#222', paddingVertical: 14, paddingHorizontal: 28, borderRadius: 10, marginTop: 24 },

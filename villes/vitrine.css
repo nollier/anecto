@@ -1,0 +1,156 @@
+/* Feuille de style de la vitrine (villes/). Même maison que telecharger/ et
+   legal/ : mêmes jetons, mêmes polices, même mesure de lecture. Ce fichier
+   est conservé tel quel par scripts/generer-vitrine.mjs, qui régénère tout
+   le reste du dossier. */
+
+:root {
+  --papier: #ffffff;
+  --encre: #161514;
+  --brique: #a8402f;
+  --grave: #6d635e;
+  --filet: #e6e1db;
+  --surface: #faf8f6;
+  --mesure: 36rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --papier: #131211;
+    --encre: #ece8e3;
+    --brique: #e08268;
+    --grave: #a09690;
+    --filet: #2c2926;
+    --surface: #1b1917;
+  }
+}
+
+:root[data-theme="dark"] {
+  --papier: #131211;
+  --encre: #ece8e3;
+  --brique: #e08268;
+  --grave: #a09690;
+  --filet: #2c2926;
+  --surface: #1b1917;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--papier);
+  color: var(--encre);
+  font-family: 'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 16px;
+  line-height: 1.65;
+  margin: 0;
+  padding: clamp(2rem, 6vw, 5rem) 1rem 6rem;
+  -webkit-font-smoothing: antialiased;
+}
+
+.page { max-width: var(--mesure); margin: 0 auto; display: flex; flex-direction: column; gap: 3rem; }
+
+p, li { margin: 0; }
+
+a { color: var(--brique); text-underline-offset: 0.15em; }
+a:focus-visible { outline: 2px solid var(--brique); outline-offset: 3px; border-radius: 2px; }
+
+.eyebrow {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--brique);
+  margin: 0;
+}
+.eyebrow a { text-decoration: none; }
+
+header { display: flex; flex-direction: column; gap: 0.75rem; }
+
+h1 {
+  font-family: 'Instrument Serif', Georgia, serif;
+  font-weight: 400;
+  font-size: clamp(2.1rem, 7vw, 3.25rem);
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+  margin: 0;
+  text-wrap: balance;
+}
+
+.chapo { color: var(--grave); font-size: 1.0625rem; }
+
+section { display: flex; flex-direction: column; gap: 1rem; }
+
+h2.titre {
+  font-family: 'Instrument Serif', Georgia, serif;
+  font-weight: 400;
+  font-size: 1.75rem;
+  line-height: 1.15;
+  margin: 0;
+  text-wrap: balance;
+}
+
+/* Le texte d'une anecdote : paragraphes aérés, comme dans l'app. */
+.texte { display: flex; flex-direction: column; gap: 1.1rem; font-size: 1.0625rem; line-height: 1.75; }
+.texte .source { font-size: 0.8125rem; color: var(--grave); padding-top: 0.5rem; border-top: 1px solid var(--filet); }
+
+/* L'appel à télécharger : un encadré, pas une bannière. Il vient après la
+   lecture, comme le bouton de partage dans l'app. */
+.appel {
+  background: var(--surface);
+  border-left: 3px solid var(--brique);
+  padding: 1.5rem 1.5rem 1.5rem 1.375rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.appel-titre { font-family: 'Instrument Serif', Georgia, serif; font-size: 1.5rem; line-height: 1.2; }
+.bouton {
+  align-self: flex-start;
+  background: var(--brique);
+  color: var(--papier);
+  font-weight: 700;
+  text-decoration: none;
+  padding: 0.7rem 1.2rem;
+  border-radius: 10px;
+}
+.bouton:hover { filter: brightness(1.08); }
+
+.liste { margin: 0; padding-left: 1.15rem; display: flex; flex-direction: column; gap: 0.6rem; }
+.accroches li { color: var(--encre); }
+
+.quand { font-size: 0.75rem; color: var(--grave); font-variant-numeric: tabular-nums; }
+
+.cartes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.75rem; }
+.cartes a {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--filet);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--encre);
+  text-decoration: none;
+  transition: border-color 0.15s ease;
+}
+.cartes a:hover { border-color: var(--brique); }
+.cartes .accroche { font-family: 'Instrument Serif', Georgia, serif; font-size: 1.35rem; line-height: 1.2; }
+.cartes .debut { font-size: 0.9375rem; color: var(--grave); }
+
+.villes { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: 0.5rem; }
+.villes a {
+  display: block;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--filet);
+  border-radius: 10px;
+  color: var(--encre);
+  text-decoration: none;
+  font-weight: 500;
+}
+.villes a:hover { border-color: var(--brique); color: var(--brique); }
+
+footer {
+  border-top: 1px solid var(--filet);
+  padding-top: 1.5rem;
+  color: var(--grave);
+  font-size: 0.8125rem;
+}

@@ -49,8 +49,23 @@ supabase/functions/send-daily-notifications/  envoi push, appelé par pg_cron
 supabase/functions/delete-account/  suppression de compte (clé de service)
 supabase/functions/rapport-quotidien/  rapport du matin par email (pg_cron)
 supabase/migrations/                schéma
-telecharger/index.html              page d'atterrissage des liens partagés
+src/lib/parrainage.ts               code d'invitation et compteur du lecteur
+src/lib/provenance.ts               canal d'installation (référent Google Play)
+src/lib/avisMagasin.ts              demande de note sur le magasin
+src/components/PartageAnecdote.tsx  partage en texte ou en image (story)
+telecharger/index.html              page d'atterrissage des liens partagés, mesurée par canal (?src=)
+villes/                             vitrine SEO générée par scripts/generer-vitrine.mjs
 ```
+
+## Acquisition
+
+Chaque lien vers `telecharger/` porte son canal : `?src=partage`,
+`?src=parrainage`, `?src=seo-<ville>`, et tout autre nom choisi pour une
+campagne (`?src=presse`, `?src=tiktok`…). La vue `acquisition_par_source`
+compte, par canal, les visites, les clics vers chaque magasin et les comptes
+créés. Sur iPhone, les comptes ne se rattachent qu'à un code saisi : les
+installations par canal se lisent dans App Store Connect, une fois
+`APPLE_PT` renseigné dans `telecharger/index.html`.
 
 ## Connexion
 

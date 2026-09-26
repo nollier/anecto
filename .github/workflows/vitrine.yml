@@ -1,0 +1,51 @@
+# Régénère la vitrine web (villes/) depuis la base, puis la publie en la
+# versionnant sur la branche principale, d'où GitHub Pages la sert avec
+# telecharger/ et legal/.
+#
+# Chaque lundi, pour qu'une ville ouverte dans la semaine ait sa page ; à la
+# demande depuis l'onglet Actions ; et à chaque modification du générateur.
+# Rien n'est commité si les pages n'ont pas changé.
+
+name: Vitrine
+
+on:
+  schedule:
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - scripts/generer-vitrine.mjs
+      - villes/vitrine.css
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vitrine
+  cancel-in-progress: false
+
+jobs:
+  generer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Générer les pages
+        run: node scripts/generer-vitrine.mjs
+
+      - name: Publier si quelque chose a changé
+        run: |
+          git add villes
+          if git diff --cached --quiet; then
+            echo "Vitrine inchangée."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Régénérer la vitrine des villes"
+          git push

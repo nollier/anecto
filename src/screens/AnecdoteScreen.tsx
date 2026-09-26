@@ -2,8 +2,8 @@ import React, { useEffect, useRef } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, Linking, Platform } from 'react-native';
 import { useRoute, RouteProp } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
-import { partagerAnecdote } from '../lib/partage';
 import AvisAnecdote from '../components/AvisAnecdote';
+import PartageAnecdote from '../components/PartageAnecdote';
 import { Anecdote } from '../types';
 
 /**
@@ -77,13 +77,7 @@ export default function AnecdoteScreen() {
       {/* Même geste qu'à l'accueil : une anecdote relue se partage aussi bien
           qu'une anecdote du jour, et c'est souvent en la relisant qu'on pense
           à quelqu'un à qui l'envoyer. */}
-      <TouchableOpacity
-        style={styles.partage}
-        accessibilityRole="button"
-        onPress={() => partagerAnecdote(anecdote)}
-      >
-        <Text style={styles.partageTexte}>↗ Partager cette anecdote</Text>
-      </TouchableOpacity>
+      <PartageAnecdote anecdote={anecdote} />
 
       {/* Une anecdote passée se note comme celle du jour, tant que rien n'a
           encore été dit dessus : celui qui la redécouvre dans l'historique
@@ -104,13 +98,4 @@ const styles = StyleSheet.create({
   body: { fontSize: 16, lineHeight: 26, color: '#333', textAlign: 'justify' },
   source: { fontSize: 12, color: '#999', marginTop: 20, fontStyle: 'italic' },
   sourceLink: { fontSize: 12, color: '#007AFF', marginTop: 20 },
-  partage: {
-    alignSelf: 'flex-start',
-    marginTop: 24,
-    paddingVertical: 9,
-    paddingHorizontal: 14,
-    borderRadius: 9,
-    backgroundColor: '#fbeeeb',
-  },
-  partageTexte: { fontSize: 13, fontWeight: '600', color: '#b3402f' },
 });

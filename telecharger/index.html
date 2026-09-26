@@ -136,6 +136,9 @@
   .magasin .quoi { font-size: 0.6875rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--grave); font-weight: 700; }
   .magasin .ou { font-weight: 700; font-size: 1.0625rem; }
 
+  .code-invitation { margin: -1.5rem 0 0; font-size: 0.9375rem; color: var(--grave); }
+  .code-invitation strong { color: var(--encre); letter-spacing: 0.12em; }
+
   footer {
     border-top: 1px solid var(--filet);
     padding-top: 1.5rem;
@@ -148,22 +151,27 @@
 
   <header>
     <p class="eyebrow">Anecto</p>
-    <h1>L'anecdote qu'on vient de vous envoyer vient d'ici</h1>
+    <h1 id="titre">L'anecdote qu'on vient de vous envoyer vient d'ici</h1>
     <p class="chapo">Anecto envoie chaque jour une anecdote vraie et vérifiée sur votre ville. Une seule, à l'heure que vous choisissez. Le compte est gratuit, et c'est lui qui garde le fil de ce que vous avez lu.</p>
   </header>
 
   <div class="magasins">
     <!-- Les deux liens se déduisent des identifiants de publication : le nom
          de paquet côté Play, l'identifiant attribué par Apple côté App Store. -->
-    <a class="magasin" href="https://play.google.com/store/apps/details?id=fr.anecto.app">
+    <a class="magasin" id="play" href="https://play.google.com/store/apps/details?id=fr.anecto.app">
       <span class="quoi">Android</span>
       <span class="ou">Google Play</span>
     </a>
-    <a class="magasin" href="https://apps.apple.com/fr/app/anecto/id6804257118">
+    <a class="magasin" id="appstore" href="https://apps.apple.com/fr/app/anecto/id6804257118">
       <span class="quoi">iPhone</span>
       <span class="ou">App Store</span>
     </a>
   </div>
+
+  <!-- Visible seulement quand le lien porte un code : sur iPhone, l'App
+       Store ne transmet rien à l'app, c'est la seule façon de rattacher le
+       nouveau lecteur à celui qui l'a invité. -->
+  <p class="code-invitation" id="invitation" hidden>Sur iPhone, après l'installation, saisissez le code <strong id="code"></strong> dans les Réglages de l'app : la personne qui vous l'a envoyé saura que vous l'avez rejointe.</p>
 
   <div class="essentiel">
     <h2>Pourquoi un compte</h2>
@@ -191,7 +199,85 @@
   </section>
 
   <footer>
-    <p>Anecto — édité par Nicolas Ollier. Gratuit, sans publicité. Voir la <a href="../legal/politique-confidentialite.html">politique de confidentialité</a> et la page <a href="../legal/suppression-compte.html">suppression de compte</a>. Une question : <a href="mailto:anecto@mail.fr">anecto@mail.fr</a>.</p>
+    <p>Anecto — édité par Nicolas Ollier. Gratuit, sans publicité. Voir la <a href="../legal/politique-confidentialite.html">politique de confidentialité</a> et la page <a href="../legal/suppression-compte.html">suppression de compte</a>. Une question : <a href="mailto:anecto@mail.fr">anecto@mail.fr</a>. Les <a href="../villes/">anecdotes par ville</a>.</p>
   </footer>
 
 </div>
+
+<script>
+  // Mesure des visites, et transmission du canal jusqu'à l'app.
+  //
+  // `src` dit d'où vient le visiteur (partage, parrainage, seo-bordeaux,
+  // presse…), `p` le code du lecteur qui l'invite. Les deux sont comptés en
+  // base, sans rien qui identifie le visiteur : ni cookie, ni adresse IP,
+  // seulement la famille d'appareil.
+  //
+  // Ils suivent ensuite le visiteur jusqu'au magasin. Google Play conserve
+  // `referrer` et le rend à l'app au premier lancement ; l'App Store ne rend
+  // rien à l'app, mais range les installations par `ct` dans les statistiques
+  // d'App Store Connect (Acquisition › Liens de campagne), à condition que
+  // `pt`, le jeton du compte développeur, soit renseigné ci-dessous.
+  (function () {
+    var SUPABASE_URL = 'https://swvhclxwchrhyhtrvmhb.supabase.co';
+    // Clé publique, la même qu'embarque l'app : elle n'ouvre au rôle anonyme
+    // que l'enregistrement d'une visite.
+    var CLE_PUBLIQUE = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN3dmhjbHh3Y2hyaHlodHJ2bWhiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MzIzMzksImV4cCI6MjEwMjIwODMzOX0.ym_dMS-lZicochqxlZRqdPR8eK2oOx139pTnKdyutms';
+    // Jeton fournisseur Apple (App Store Connect › Analytics › Acquisition ›
+    // Générer un lien de campagne). Vide, le lien part sans suivi de campagne.
+    var APPLE_PT = '';
+
+    var params = new URLSearchParams(location.search);
+    var src = (params.get('src') || '').toLowerCase();
+    var code = (params.get('p') || '').toUpperCase();
+    // Mêmes formats que la base : ce qui n'y entre pas n'est ni compté ni
+    // transmis, et n'arrive jamais dans la page.
+    if (!/^[a-z0-9_-]{1,32}$/.test(src)) src = '';
+    if (!/^[A-HJKMNP-Z2-9]{6}$/.test(code)) code = '';
+
+    var ua = navigator.userAgent;
+    var plateforme = /android/i.test(ua)
+      ? 'android'
+      : /iphone|ipad|ipod/i.test(ua) || (/macintosh/i.test(ua) && navigator.maxTouchPoints > 1)
+        ? 'ios'
+        : 'autre';
+
+    function compter(etape) {
+      try {
+        fetch(SUPABASE_URL + '/rest/v1/rpc/enregistrer_visite', {
+          method: 'POST',
+          // `keepalive` : le clic ouvre le magasin, la page se ferme, et la
+          // requête doit partir quand même.
+          keepalive: true,
+          headers: {
+            apikey: CLE_PUBLIQUE,
+            Authorization: 'Bearer ' + CLE_PUBLIQUE,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ p_etape: etape, p_source: src || null, p_code: code || null, p_plateforme: plateforme })
+        }).catch(function () {});
+      } catch (e) {}
+    }
+
+    // Le titre d'origine ne vaut que pour celui qui a reçu une anecdote.
+    // Arrivé par Google, un article ou une vidéo, on n'a rien reçu du tout.
+    if (src && src !== 'partage') {
+      document.getElementById('titre').textContent = 'Une anecdote vraie sur votre ville, chaque jour';
+    }
+
+    var referent = 'utm_source=' + (src || 'site') + '&utm_medium=lien' + (code ? '&anecto_code=' + code : '');
+    var play = document.getElementById('play');
+    play.href += '&referrer=' + encodeURIComponent(referent);
+
+    var appstore = document.getElementById('appstore');
+    if (APPLE_PT) appstore.href += '?pt=' + APPLE_PT + '&ct=' + (src || 'site') + '&mt=8';
+
+    if (code) {
+      document.getElementById('code').textContent = code;
+      document.getElementById('invitation').hidden = false;
+    }
+
+    compter('visite');
+    play.addEventListener('click', function () { compter('clic_android'); });
+    appstore.addEventListener('click', function () { compter('clic_ios'); });
+  })();
+</script>

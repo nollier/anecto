@@ -14,6 +14,7 @@ import { supabase } from '../lib/supabase';
 import { oublierJetonPush, registerForPushNotificationsAsync } from '../lib/notifications';
 import { deviceTimezone } from '../lib/places';
 import CityPicker from '../components/CityPicker';
+import BlocParrainage from '../components/BlocParrainage';
 import { POLITIQUE_CONFIDENTIALITE } from '../lib/legal';
 import { VilleCouverte } from '../types';
 
@@ -186,6 +187,8 @@ export default function SettingsScreen() {
       <TouchableOpacity style={styles.saveBtn} onPress={saveProfile} disabled={saving}>
         <Text style={styles.saveBtnText}>{saving ? 'Enregistrement...' : 'Enregistrer'}</Text>
       </TouchableOpacity>
+
+      <BlocParrainage />
 
       <Text style={styles.label}>Compte</Text>
       <TouchableOpacity style={styles.secondaryBtn} onPress={seDeconnecter}>
