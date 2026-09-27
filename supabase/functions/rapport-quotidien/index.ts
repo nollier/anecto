@@ -30,6 +30,17 @@ interface StockBas {
   restantes: number;
 }
 
+interface NouvelleDemande {
+  ville: string;
+  email: string | null;
+}
+
+interface VillePrete {
+  ville: string;
+  anecdotes: number;
+  prevenus: number;
+}
+
 interface Rapport {
   jour: string;
   lecteurs: number;
@@ -42,6 +53,8 @@ interface Rapport {
   brouillons: number;
   demandes_en_attente: number;
   stocks_bas: StockBas[];
+  nouvelles_demandes: NouvelleDemande[];
+  villes_pretes: VillePrete[];
 }
 
 function echapper(texte: string): string {
@@ -100,6 +113,26 @@ function corps(r: Rapport): { texte: string; html: string } {
     );
   }
 
+  if (r.nouvelles_demandes.length > 0) {
+    lignes.push(
+      '',
+      `${r.nouvelles_demandes.length} ${accord(r.nouvelles_demandes.length, 'nouvelle demande de ville', 'nouvelles demandes de ville')} hier :`,
+      ...r.nouvelles_demandes.map((d) => `  ${d.ville} (${d.email ?? 'compte sans adresse'})`),
+      'Production automatique lancée.'
+    );
+  }
+
+  if (r.villes_pretes.length > 0) {
+    lignes.push(
+      '',
+      `${r.villes_pretes.length} ${accord(r.villes_pretes.length, 'ville prête', 'villes prêtes')} hier, lecteur(s) prévenu(s) :`,
+      ...r.villes_pretes.map(
+        (v) =>
+          `  ${v.ville} — ${v.anecdotes} ${accord(v.anecdotes, 'anecdote validée', 'anecdotes validées')}, ${v.prevenus} ${accord(v.prevenus, 'lecteur prévenu', 'lecteurs prévenus')}`
+      )
+    );
+  }
+
   if (r.stocks_bas.length > 0) {
     lignes.push(
       '',
@@ -109,7 +142,7 @@ function corps(r: Rapport): { texte: string; html: string } {
           `  ${s.ville} — ${s.restantes} ${accord(s.restantes, 'anecdote', 'anecdotes')} non ${accord(s.restantes, 'servie', 'servies')} (${s.email ?? 'compte sans adresse'})`
       ),
       '',
-      'select public.produire_lot(6, 30);'
+      'Réassort automatique (produire_lot, 5 h).'
     );
   } else {
     lignes.push('', 'Aucun lecteur à moins de quatre anecdotes de la fin de sa ville.');
@@ -134,9 +167,48 @@ function corps(r: Rapport): { texte: string; html: string } {
           )} <span style="color:#888">(${echapper(s.email ?? 'compte sans adresse')})</span></div>`
       )
       .join('')}
-    <div style="font-size:13px;color:#666;margin-top:12px;font-family:ui-monospace,Menlo,monospace">select public.produire_lot(6, 30);</div>
+    <div style="font-size:13px;color:#666;margin-top:12px">Réassort automatique (produire_lot, 5 h).</div>
   </div>`
       : `<p style="font-size:14px;color:#666;margin:24px 0">Aucun lecteur à moins de quatre anecdotes de la fin de sa ville.</p>`;
+
+  const nouvellesDemandes =
+    r.nouvelles_demandes.length > 0
+      ? `<div style="background:#faf6f2;border-left:3px solid #b3402f;padding:16px 18px;margin:24px 0">
+    <div style="font-size:13px;font-weight:700;color:#b3402f;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px">Nouvelle${
+      r.nouvelles_demandes.length > 1 ? 's' : ''
+    } demande${r.nouvelles_demandes.length > 1 ? 's' : ''} de ville</div>
+    ${r.nouvelles_demandes
+      .map(
+        (d) =>
+          `<div style="font-size:15px;color:#1a1a1a;margin-bottom:6px"><strong>${echapper(
+            d.ville
+          )}</strong> <span style="color:#888">(${echapper(d.email ?? 'compte sans adresse')})</span></div>`
+      )
+      .join('')}
+    <div style="font-size:13px;color:#666;margin-top:12px">Production automatique lancée.</div>
+  </div>`
+      : '';
+
+  const villesPretes =
+    r.villes_pretes.length > 0
+      ? `<div style="background:#f0f7f0;border-left:3px solid #3f8f4f;padding:16px 18px;margin:24px 0">
+    <div style="font-size:13px;font-weight:700;color:#3f8f4f;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px">Ville${
+      r.villes_pretes.length > 1 ? 's' : ''
+    } prête${r.villes_pretes.length > 1 ? 's' : ''}</div>
+    ${r.villes_pretes
+      .map(
+        (v) =>
+          `<div style="font-size:15px;color:#1a1a1a;margin-bottom:6px"><strong>${echapper(
+            v.ville
+          )}</strong> — ${v.anecdotes} ${accord(
+            v.anecdotes,
+            'anecdote validée',
+            'anecdotes validées'
+          )}, ${v.prevenus} ${accord(v.prevenus, 'lecteur prévenu', 'lecteurs prévenus')}</div>`
+      )
+      .join('')}
+  </div>`
+      : '';
 
   const relecture =
     r.brouillons > 0
@@ -173,6 +245,10 @@ function corps(r: Rapport): { texte: string; html: string } {
     ${ligneStat(String(r.lecteurs_7j), 'lecteurs actifs sur sept jours')}
     ${r.nouveaux_profils > 0 ? ligneStat(String(r.nouveaux_profils), 'nouveaux comptes') : ''}
   </table>
+
+  ${nouvellesDemandes}
+
+  ${villesPretes}
 
   ${alerte}
 
