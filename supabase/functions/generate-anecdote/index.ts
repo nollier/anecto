@@ -518,6 +518,7 @@ Deno.serve(async (req) => {
       anecdotes: [],
     });
   }
+  const dossierComplet = docs;
   const created: unknown[] = [];
   const skipped: string[] = [];
 
@@ -620,7 +621,7 @@ Deno.serve(async (req) => {
     created: created.length,
     // Rend visible ce qui a réellement nourri le modèle : c'est ici qu'on voit
     // si Mérimée a répondu, et avec quel volume.
-    dossier: docs.map((d) => ({
+    dossier: dossierComplet.map((d) => ({
       origine: d.origine,
       titre: d.title,
       url: d.url,
