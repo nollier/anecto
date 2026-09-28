@@ -93,7 +93,7 @@ async function buildDossier(city: string, exclure: string[], axe: Axe): Promise<
   // du dossier. On ne l'interroge pas, et on économise l'appel.
   const [wiki, merimee] = await Promise.allSettled([
     fetchWikipediaDocs(city, exclure, axe),
-    axe === 'personnalites' ? Promise.resolve([]) : fetchPatrimoineDocs(city),
+    axe === 'personnalites' ? Promise.resolve([]) : fetchPatrimoineDocs(city, exclure),
   ]);
 
   if (wiki.status === 'rejected') console.error('Wikipédia', wiki.reason);
