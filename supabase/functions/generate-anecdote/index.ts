@@ -35,6 +35,13 @@ import { type Axe, fetchWikipediaDocs } from './wikipedia.ts';
 import { fetchPatrimoineDocs } from './patrimoine.ts';
 import type { SourceDoc } from './sources.ts';
 import { controler, normalize } from './verification.ts';
+import {
+  articleDejaTraite,
+  DOUBLON_SYSTEM,
+  doublonPrompt,
+  estArticleGeneral,
+  type Existante,
+} from './doublons.ts';
 import { corsHeaders, fail, json } from './http.ts';
 
 const ADMIN_SECRET = Deno.env.get('ANECTO_ADMIN_SECRET');
@@ -86,7 +93,7 @@ async function buildDossier(city: string, exclure: string[], axe: Axe): Promise<
   // du dossier. On ne l'interroge pas, et on économise l'appel.
   const [wiki, merimee] = await Promise.allSettled([
     fetchWikipediaDocs(city, exclure, axe),
-    axe === 'personnalites' ? Promise.resolve([]) : fetchPatrimoineDocs(city),
+    axe === 'personnalites' ? Promise.resolve([]) : fetchPatrimoineDocs(city, exclure),
   ]);
 
   if (wiki.status === 'rejected') console.error('Wikipédia', wiki.reason);
@@ -246,14 +253,27 @@ Vérifie chaque affirmation contre le dossier — l'accroche compte autant que l
 // ------------------------------------------------------------- génération
 
 type Resultat =
-  | { ok: true; redaction: Redaction; verification: Verification; citations: string[] }
+  | {
+      ok: true;
+      redaction: Redaction;
+      verification: Verification;
+      citations: string[];
+      retenus: SourceDoc[];
+    }
   | { ok: false; reason: string };
+
+interface Doublon {
+  doublon: boolean;
+  titre?: string;
+  raison?: string;
+}
 
 async function generateOne(
   apiKey: string,
   city: string,
   docs: SourceDoc[],
   existingTitles: string[],
+  existantes: Existante[],
   axe: Axe
 ): Promise<Resultat> {
   const redaction = await chatJSON<Redaction>({
@@ -300,6 +320,67 @@ async function generateOne(
   if (!controle.ok) {
     return { ok: false, reason: controle.reason! };
   }
+  const citations = controle.citationsValides;
+
+  // Ne créditer que les documents qui portent réellement une citation
+  // vérifiée, du plus contributif au moins.
+  //
+  // Le dossier compte six ou huit articles, et l'anecdote n'en exploite
+  // presque jamais plus d'un. Créditer tout le dossier produisait une ligne
+  // « Wikipédia — Paris ; Wikipédia — Histoire de Paris ; … » illisible, et
+  // surtout un lien « Source » pointant vers l'article général de la ville —
+  // où le lecteur venu vérifier ne trouvait pas le fait annoncé. Une source
+  // qu'on ne peut pas vérifier ne vaut pas mieux que pas de source.
+  const contributions = docs
+    .map((doc) => {
+      const extrait = normalize(doc.extract);
+      return { doc, poids: citations.filter((c) => extrait.includes(normalize(c))).length };
+    })
+    .filter((c) => c.poids > 0)
+    .sort((a, b) => b.poids - a.poids);
+
+  // Filet : les citations ont été validées contre la concaténation du
+  // dossier, une seule pourrait théoriquement chevaucher deux documents.
+  const retenus = contributions.length > 0 ? contributions.map((c) => c.doc) : [docs[0]];
+
+  // Le thème avant la vérification : un doublon n'a pas à coûter un second
+  // appel de relecture.
+  const memeArticle = articleDejaTraite(
+    retenus.map((d) => d.title),
+    existantes,
+    city
+  );
+  if (memeArticle) {
+    return {
+      ok: false,
+      reason: `Thème déjà traité : « ${clean.titre} » reprend l'article « ${memeArticle.article} », déjà exploité par « ${memeArticle.titre} ».`,
+    };
+  }
+
+  if (existantes.length > 0) {
+    let doublon: Doublon;
+    try {
+      doublon = await chatJSON<Doublon>({
+        apiKey,
+        system: DOUBLON_SYSTEM,
+        user: doublonPrompt(city, clean, existantes),
+        temperature: 0,
+        maxTokens: 400,
+      });
+    } catch (err) {
+      // Sans réponse, on ne sait pas : l'anecdote n'est pas enregistrée.
+      return {
+        ok: false,
+        reason: `Contrôle des doublons impossible : ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+    if (doublon?.doublon !== false) {
+      return {
+        ok: false,
+        reason: `Thème déjà traité : « ${clean.titre} » double « ${doublon?.titre || '?'} ». ${doublon?.raison ?? ''}`.trim(),
+      };
+    }
+  }
 
   // 2500 et non 800 : le vérificateur cite les passages qu'il conteste, et un
   // récit de 400 mots lui en donne beaucoup plus qu'un paragraphe. À 800, sa
@@ -331,7 +412,7 @@ async function generateOne(
     };
   }
 
-  return { ok: true, redaction: clean, verification, citations: controle.citationsValides };
+  return { ok: true, redaction: clean, verification, citations, retenus };
 }
 
 // -------------------------------------------------------------------- HTTP
@@ -375,12 +456,35 @@ Deno.serve(async (req) => {
   // par ville — sans quoi le modèle revient au même monument indéfiniment.
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
-  const existingQuery = supabase.from('anecdotes').select('title, sources').limit(500);
-  const { data: existing } = cityPlaceId
+  const existingQuery = supabase
+    .from('anecdotes')
+    .select('title, hook, sources, status')
+    .limit(500);
+  const { data: existing, error: existingError } = cityPlaceId
     ? await existingQuery.eq('city_place_id', cityPlaceId)
     : await existingQuery.eq('city', city);
 
+  // Sans l'existant, le contrôle des doublons ne voit rien : mieux vaut ne
+  // rien écrire que réécrire ce qui est déjà publié.
+  if (existingError) {
+    console.error('Existant', existingError);
+    return json({ created: 0, skipped: [], error: existingError.message }, 500);
+  }
+
   const titles: string[] = (existing ?? []).map((row) => row.title);
+
+  // Ce qu'un lecteur peut recevoir ou recevra : publié, ou en attente de
+  // relecture. Une anecdote rejetée ne bloque pas son thème — elle l'a
+  // souvent été parce qu'elle parlait d'autre chose que de la ville.
+  const existantes: Existante[] = (existing ?? [])
+    .filter((row) => row.status !== 'rejected')
+    .map((row) => ({
+      titre: row.title,
+      accroche: row.hook ?? null,
+      articles: ((row.sources ?? []) as Array<{ titre?: string }>)
+        .map((s) => s.titre)
+        .filter((t): t is string => typeof t === 'string'),
+    }));
 
   const articlesExploites = [
     ...new Set(
@@ -414,13 +518,19 @@ Deno.serve(async (req) => {
       anecdotes: [],
     });
   }
+  const dossierComplet = docs;
   const created: unknown[] = [];
   const skipped: string[] = [];
 
   for (let i = 0; i < count; i++) {
+    if (docs.length === 0) {
+      skipped.push(`Dossier épuisé après ${created.length} anecdote(s) : chaque article a déjà servi.`);
+      break;
+    }
+
     let result: Resultat;
     try {
-      result = await generateOne(DEEPSEEK_API_KEY, city, docs, titles, axe);
+      result = await generateOne(DEEPSEEK_API_KEY, city, docs, titles, existantes, axe);
     } catch (err) {
       const message = err instanceof DeepSeekError ? err.message : String(err);
       console.error('DeepSeek', message);
@@ -432,28 +542,7 @@ Deno.serve(async (req) => {
       continue;
     }
 
-    const { redaction, verification, citations } = result;
-
-    // Ne créditer que les documents qui portent réellement une citation
-    // vérifiée, du plus contributif au moins.
-    //
-    // Le dossier compte six ou huit articles, et l'anecdote n'en exploite
-    // presque jamais plus d'un. Créditer tout le dossier produisait une ligne
-    // « Wikipédia — Paris ; Wikipédia — Histoire de Paris ; … » illisible, et
-    // surtout un lien « Source » pointant vers l'article général de la ville —
-    // où le lecteur venu vérifier ne trouvait pas le fait annoncé. Une source
-    // qu'on ne peut pas vérifier ne vaut pas mieux que pas de source.
-    const contributions = docs
-      .map((doc) => {
-        const extrait = normalize(doc.extract);
-        return { doc, poids: citations.filter((c) => extrait.includes(normalize(c))).length };
-      })
-      .filter((c) => c.poids > 0)
-      .sort((a, b) => b.poids - a.poids);
-
-    // Filet : les citations ont été validées contre la concaténation du
-    // dossier, une seule pourrait théoriquement chevaucher deux documents.
-    const retenus = contributions.length > 0 ? contributions.map((c) => c.doc) : [docs[0]];
+    const { redaction, verification, citations, retenus } = result;
 
     const sources = retenus.map((doc) => ({
       url: doc.url,
@@ -513,6 +602,18 @@ Deno.serve(async (req) => {
     } else {
       created.push(inserted);
       titles.push(redaction.titre);
+      existantes.push({
+        titre: redaction.titre,
+        accroche: redaction.accroche,
+        articles: sources.map((s) => s.titre),
+      });
+      // L'article spécifique qui vient de servir sort du dossier : les
+      // suivantes du lot doivent puiser ailleurs, pas tourner autour du même
+      // monument sous un autre titre.
+      const servis = new Set(
+        retenus.filter((d) => !estArticleGeneral(d.title, city)).map((d) => d.title)
+      );
+      docs = docs.filter((d) => !servis.has(d.title));
     }
   }
 
@@ -520,7 +621,7 @@ Deno.serve(async (req) => {
     created: created.length,
     // Rend visible ce qui a réellement nourri le modèle : c'est ici qu'on voit
     // si Mérimée a répondu, et avec quel volume.
-    dossier: docs.map((d) => ({
+    dossier: dossierComplet.map((d) => ({
       origine: d.origine,
       titre: d.title,
       url: d.url,
