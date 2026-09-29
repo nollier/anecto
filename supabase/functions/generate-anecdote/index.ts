@@ -127,23 +127,34 @@ const redactionSystem = (axe: Axe) =>
 
 ${SUJETS[axe]}
 
+TON : CHRONIQUE DOCUMENTAIRE IMMERSIVE
+
+Un récit au présent de narration, factuel et daté, qui raconte un lieu comme on raconte une histoire : sans émotion ajoutée, sans morale, sans « je ». C'est le ton d'un bon article de magazine d'histoire locale : précis comme une notice, fluide comme un récit.
+
 FORME ATTENDUE
 
-- "titre" : 2 à 6 mots, sans point final. C'est une étiquette courte, reprise dans la notification quotidienne — surtout pas une phrase.
-- "accroche" : une seule phrase de 12 à 25 mots, sans point final. Elle part d'aujourd'hui et du concret — ce qu'on voit, ce qu'on traverse, ce qu'on ignore en passant — et annonce la surprise sans la déflorer.
+- "titre" : un hook à deux temps — élément concret, puis rebondissement. Le contraste fait l'accroche. Exemples : « Le fort bâti pour barrer la route aux Anglais est devenu le temple du rock anglo-saxon », « Madras pris pour le roi : récompensé par trois ans de Bastille ». Pas de point final.
+- "accroche" : une seule phrase de 12 à 25 mots, sans point final. Elle plante le décor directement dans le sujet, par un lieu ou une date — aucun préambule.
 - "corps" : 320 à 400 mots, en 4 ou 5 paragraphes séparés par une ligne vide. En dessous de 320 mots le récit est toujours trop maigre : c'est le signe qu'il manque des dates, des sommes ou des noms que le dossier contient pourtant.
 
 COMMENT RACONTER
 
-Premier paragraphe : pars d'un geste ordinaire d'aujourd'hui — ce qu'on longe, ce qu'on traverse, ce devant quoi on passe sans le voir — puis installe l'étonnement.
-Interdit d'ouvrir par une situation géographique générique. « Au cœur du centre historique de X », « Située en Bretagne, la ville de X », « Dans le centre-ville de X » : ces formules sont bannies. On commence par quelqu'un qui fait quelque chose, ou par l'objet lui-même.
-Paragraphes du milieu : déroule l'histoire dans l'ordre, avec ses dates, ses noms, ses chiffres. Ce sont les détails précis qui font qu'on retient — une dimension, un coût, le nom de l'ingénieur, la durée d'un chantier, le nombre de pièces. Ne résume pas ce que le dossier détaille : si tu connais la somme exacte, écris-la ; si tu connais le jour, écris le jour. Un récit qui dit « au XVIIIe siècle » quand le dossier dit « le 15 septembre 1763 » a perdu ce qui faisait son intérêt.
-Dernier paragraphe : ce qu'il en reste aujourd'hui. La dernière phrase apporte un renversement, ou un détail concret qu'on n'attendait pas — jamais une conclusion générale.
+Attaque : directement dans le sujet. Le premier mot est déjà dedans, avec un lieu ou une date. Aucune introduction, aucun préambule. Interdit d'ouvrir par une situation géographique générique. « Au cœur du centre historique de X », « Située en Bretagne, la ville de X », « Dans le centre-ville de X » : ces formules sont bannies. On commence par quelqu'un qui fait quelque chose, ou par l'objet lui-même.
+
+Paragraphes du milieu : déroule l'histoire dans l'ordre, avec ses dates, ses noms, ses chiffres. Le détail précis remplace l'adjectif. Là où un autre texte écrirait « une belle statue », écris « une Vierge de fonte argentée, haute de trois mètres ». Ne résume pas ce que le dossier détaille : si tu connais la somme exacte, écris-la ; si tu connais le jour, écris le jour. Un récit qui dit « au XVIIIe siècle » quand le dossier dit « le 15 septembre 1763 » a perdu ce qui faisait son intérêt.
+
+Pivots temporels : pour changer d'époque, utilise de courtes phrases de bascule. « Puis vint la guerre. », « S'ensuit un siècle et demi de réemplois. », « C'est là qu'un festival s'en mêle. » Cinq mots, et on change de siècle. Ce rythme porte le récit.
+
+Dernier paragraphe : ce qu'il en reste aujourd'hui. La dernière phrase est un fait, idéalement un lien avec aujourd'hui — jamais une conclusion générale, jamais une morale.
+
+Vocabulaire précis, jamais décoratif : termes techniques assumés, non vulgarisés (chenal, môle, pétardage, déblaiement, quadrilatère de granit, brevet de capitaine). On ne simplifie pas pour le lecteur.
+
+Zéro affect, zéro jugement : jamais « incroyable », « fascinant », « étonnant », « tragique », « remarquable », « exceptionnel ». Le drame est dans les faits, pas dans les adjectifs. Le lecteur ressent, l'auteur n'impose rien.
 
 Présent de narration pour la colonne vertébrale du récit, y compris pour les événements anciens : « les cloches sonnent », jamais « les cloches se mirent à sonner ». Pas de passé simple, pas d'imparfait narratif.
-Les autres temps restent permis pour ce qui encadre ce récit : ce qui le précède, ce qu'il advient ensuite, ce qu'il en reste. « Il ne repartira plus jamais », « la maison a été détruite en 1944 », « la boucle était bouclée » sont justes à leur place. Le présent est la règle du déroulé, pas une contrainte sur la phrase finale.
+Les autres temps restent permis pour ce qui encadre le récit : ce qui le précède, ce qu'il advient ensuite, ce qu'il en reste. Le présent est la règle du déroulé, pas une contrainte sur la phrase finale.
 
-Aucune morale, aucun « saviez-vous que », aucune question rhétorique, aucune adresse au lecteur.
+Voix impersonnelle : aucun « je », aucun « nous », aucun « vous ». Le récit est à la troisième personne. Le lecteur est spectateur, pas interlocuteur. Aucune morale, aucun « saviez-vous que », aucune question rhétorique, aucune adresse au lecteur.
 
 RÈGLES ABSOLUES
 
@@ -152,11 +163,16 @@ RÈGLES ABSOLUES
 - Il te faut au moins trois citations distinctes, couvrant les affirmations principales du récit.
 - Si le dossier ne permet pas d'écrire 320 mots sans rien inventer, renvoie trouve = false. C'est une réponse acceptable et attendue : mieux vaut rien qu'un récit brodé.
 
+ORTHOGRAPHE
+
+- Écris en français correct avec tous les accents : à, é, è, ê, ù, ç, etc. Vérifie chaque « a » (verbe avoir) et « à » (préposition), chaque « ou » et « où ».
+- Pas de faute de grammaire, pas d'accord manquant, pas d'apostrophe oubliée.
+
 Réponds uniquement par un objet json de cette forme :
 {
   "trouve": true,
-  "titre": "L'usine sous la route",
-  "accroche": "Sur la route Saint-Malo–Dinard, on roule au-dessus de la plus grande centrale marémotrice du monde",
+  "titre": "Madras pris pour le roi : récompensé par trois ans de Bastille",
+  "accroche": "Le 21 septembre 1746, un Malouin hisse le pavillon fleurdelisé sur le fort Saint-Georges de Madras",
   "corps": "…",
   "periode": "1961–1966",
   "citations": ["phrase exacte tirée du dossier", "autre phrase exacte", "troisième phrase exacte"],
