@@ -7,7 +7,16 @@
 // La seconde est celle qui coûte des lecteurs. Un profil qui épuise sa ville
 // tombe sur « Rien à lire aujourd'hui », et ne revient pas le lendemain.
 // Signalé trois anecdotes à l'avance, il reste le temps d'en produire — ce
-// que `produire_lot` fait en un appel.
+// que le réassort de 5 h fait tout seul (`reassortir_stock_bas`).
+//
+// Une troisième question depuis le 30 septembre : la production a-t-elle
+// fait son travail ? Demandé, obtenu, publiable, et pourquoi le reste a été
+// écarté (`controle_production`).
+//
+// Les champs du rapport sont lus avec prudence (`?? []`) : la fonction SQL
+// `rapport_quotidien` en base et celle du dépôt ont divergé (« J'adore »
+// d'un côté, demandes et villes prêtes de l'autre). Ce fichier affiche ce
+// qu'il reçoit, sans tomber sur ce qui manque.
 //
 // Rien n'est marqué comme envoyé ici, contrairement aux autres alertes : un
 // rapport quotidien se recalcule intégralement à chaque passage. S'il échoue,
@@ -41,6 +50,37 @@ interface VillePrete {
   prevenus: number;
 }
 
+interface Adore {
+  ville: string;
+  titre: string;
+  combien: number;
+}
+
+interface Lot {
+  ville: string;
+  demandees: number;
+  creees: number;
+  publiables: number;
+  erreur: string | null;
+  sautees: string[];
+}
+
+interface Controle {
+  lots: Lot[];
+  corrigees: number;
+  abandonnees: Array<{ ville: string; titre: string; motif: string }>;
+  en_correction: number;
+}
+
+// Un « J'adore » par anecdote et par lecteur : la liste d'une journée tient en
+// quelques lignes. Le plafond est là pour le jour où ce ne sera plus vrai —
+// un rapport de deux cents lignes ne se lit pas.
+const MAX_ADORES_LISTES = 10;
+
+// Les raisons d'un lot se ressemblent souvent (« Dossier épuisé… ») : trois
+// suffisent à comprendre, le détail est dans `lots_generation`.
+const MAX_RAISONS_PAR_LOT = 3;
+
 interface Rapport {
   jour: string;
   lecteurs: number;
@@ -53,8 +93,10 @@ interface Rapport {
   brouillons: number;
   demandes_en_attente: number;
   stocks_bas: StockBas[];
-  nouvelles_demandes: NouvelleDemande[];
-  villes_pretes: VillePrete[];
+  nouvelles_demandes?: NouvelleDemande[];
+  villes_pretes?: VillePrete[];
+  adores?: number;
+  adores_detail?: Adore[];
 }
 
 function echapper(texte: string): string {
@@ -79,8 +121,17 @@ function accord(n: number, singulier: string, pluriel: string): string {
   return n > 1 ? pluriel : singulier;
 }
 
-function corps(r: Rapport): { texte: string; html: string } {
+/** Un lot est en défaut s'il a rendu moins que demandé, ou moins de publiables que de créées. */
+function enDefaut(l: Lot): boolean {
+  return !!l.erreur || l.creees < l.demandees || l.publiables < l.creees;
+}
+
+function corps(r: Rapport, c: Controle | null): { texte: string; html: string } {
   const date = jourLisible(r.jour);
+  const nouvellesDemandesListe = r.nouvelles_demandes ?? [];
+  const villesPretesListe = r.villes_pretes ?? [];
+  const adores = r.adores ?? 0;
+  const adoresDetail = r.adores_detail ?? [];
 
   // Le taux dit ce que le compte brut cache : onze lecteurs sur douze profils
   // et onze sur deux cents ne se pilotent pas pareil.
@@ -100,6 +151,22 @@ function corps(r: Rapport): { texte: string; html: string } {
     );
   }
 
+  // Le seul signal positif que le lecteur sache émettre. L'alerte retours
+  // l'écarte volontairement, faute de commentaire à traiter : sans cette
+  // ligne, il ne se lit nulle part.
+  if (adores > 0) {
+    lignes.push(
+      '',
+      `${adores} « J'adore » sur ${adoresDetail.length} ${accord(adoresDetail.length, 'anecdote', 'anecdotes')} :`,
+      ...adoresDetail
+        .slice(0, MAX_ADORES_LISTES)
+        .map((a) => `  ${a.ville} — ${a.titre}${a.combien > 1 ? ` (${a.combien})` : ''}`)
+    );
+    if (adoresDetail.length > MAX_ADORES_LISTES) {
+      lignes.push(`  et ${adoresDetail.length - MAX_ADORES_LISTES} autres.`);
+    }
+  }
+
   lignes.push('', `Stock : ${r.anecdotes_validees} anecdotes validées sur ${r.villes_ouvertes} villes.`);
 
   if (r.brouillons > 0) {
@@ -113,20 +180,20 @@ function corps(r: Rapport): { texte: string; html: string } {
     );
   }
 
-  if (r.nouvelles_demandes.length > 0) {
+  if (nouvellesDemandesListe.length > 0) {
     lignes.push(
       '',
-      `${r.nouvelles_demandes.length} ${accord(r.nouvelles_demandes.length, 'nouvelle demande de ville', 'nouvelles demandes de ville')} hier :`,
-      ...r.nouvelles_demandes.map((d) => `  ${d.ville} (${d.email ?? 'compte sans adresse'})`),
+      `${nouvellesDemandesListe.length} ${accord(nouvellesDemandesListe.length, 'nouvelle demande de ville', 'nouvelles demandes de ville')} hier :`,
+      ...nouvellesDemandesListe.map((d) => `  ${d.ville} (${d.email ?? 'compte sans adresse'})`),
       'Production automatique lancée.'
     );
   }
 
-  if (r.villes_pretes.length > 0) {
+  if (villesPretesListe.length > 0) {
     lignes.push(
       '',
-      `${r.villes_pretes.length} ${accord(r.villes_pretes.length, 'ville prête', 'villes prêtes')} hier, lecteur(s) prévenu(s) :`,
-      ...r.villes_pretes.map(
+      `${villesPretesListe.length} ${accord(villesPretesListe.length, 'ville prête', 'villes prêtes')} hier, lecteur(s) prévenu(s) :`,
+      ...villesPretesListe.map(
         (v) =>
           `  ${v.ville} — ${v.anecdotes} ${accord(v.anecdotes, 'anecdote validée', 'anecdotes validées')}, ${v.prevenus} ${accord(v.prevenus, 'lecteur prévenu', 'lecteurs prévenus')}`
       )
@@ -142,10 +209,33 @@ function corps(r: Rapport): { texte: string; html: string } {
           `  ${s.ville} — ${s.restantes} ${accord(s.restantes, 'anecdote', 'anecdotes')} non ${accord(s.restantes, 'servie', 'servies')} (${s.email ?? 'compte sans adresse'})`
       ),
       '',
-      'Réassort automatique (produire_lot, 5 h).'
+      'Réassort automatique à 5 h, dès que les brouillons de la ville sont corrigés ou rejetés.'
     );
   } else {
     lignes.push('', 'Aucun lecteur à moins de quatre anecdotes de la fin de sa ville.');
+  }
+
+  if (c) {
+    lignes.push('', 'Contrôle production (24 h) :');
+    if (c.lots.length === 0) {
+      lignes.push('  Aucun lot lancé.');
+    }
+    for (const l of c.lots) {
+      lignes.push(
+        `  ${enDefaut(l) ? '⚠' : '✓'} ${l.ville} — ${l.demandees} demandées, ${l.creees} créées, ${l.publiables} publiables d'emblée`
+      );
+      if (l.erreur) lignes.push(`      erreur : ${l.erreur}`);
+      for (const raison of l.sautees.slice(0, MAX_RAISONS_PAR_LOT)) lignes.push(`      · ${raison}`);
+      if (l.sautees.length > MAX_RAISONS_PAR_LOT) {
+        lignes.push(`      · et ${l.sautees.length - MAX_RAISONS_PAR_LOT} autres (select * from lots_generation)`);
+      }
+    }
+    lignes.push(
+      `  ${c.corrigees} ${accord(c.corrigees, 'anecdote corrigée puis publiable', 'anecdotes corrigées puis publiables')}, ${c.en_correction} en cours de correction.`
+    );
+    for (const a of c.abandonnees) {
+      lignes.push(`  ✗ Rejetée après 3 corrections : ${a.ville} — ${a.titre} (${a.motif})`);
+    }
   }
 
   const ligneStat = (valeur: string, libelle: string) =>
@@ -167,17 +257,17 @@ function corps(r: Rapport): { texte: string; html: string } {
           )} <span style="color:#888">(${echapper(s.email ?? 'compte sans adresse')})</span></div>`
       )
       .join('')}
-    <div style="font-size:13px;color:#666;margin-top:12px">Réassort automatique (produire_lot, 5 h).</div>
+    <div style="font-size:13px;color:#666;margin-top:12px">Réassort automatique à 5 h, dès que les brouillons de la ville sont corrigés ou rejetés.</div>
   </div>`
       : `<p style="font-size:14px;color:#666;margin:24px 0">Aucun lecteur à moins de quatre anecdotes de la fin de sa ville.</p>`;
 
   const nouvellesDemandes =
-    r.nouvelles_demandes.length > 0
+    nouvellesDemandesListe.length > 0
       ? `<div style="background:#faf6f2;border-left:3px solid #b3402f;padding:16px 18px;margin:24px 0">
     <div style="font-size:13px;font-weight:700;color:#b3402f;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px">Nouvelle${
-      r.nouvelles_demandes.length > 1 ? 's' : ''
-    } demande${r.nouvelles_demandes.length > 1 ? 's' : ''} de ville</div>
-    ${r.nouvelles_demandes
+      nouvellesDemandesListe.length > 1 ? 's' : ''
+    } demande${nouvellesDemandesListe.length > 1 ? 's' : ''} de ville</div>
+    ${nouvellesDemandesListe
       .map(
         (d) =>
           `<div style="font-size:15px;color:#1a1a1a;margin-bottom:6px"><strong>${echapper(
@@ -190,12 +280,12 @@ function corps(r: Rapport): { texte: string; html: string } {
       : '';
 
   const villesPretes =
-    r.villes_pretes.length > 0
+    villesPretesListe.length > 0
       ? `<div style="background:#f0f7f0;border-left:3px solid #3f8f4f;padding:16px 18px;margin:24px 0">
     <div style="font-size:13px;font-weight:700;color:#3f8f4f;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px">Ville${
-      r.villes_pretes.length > 1 ? 's' : ''
-    } prête${r.villes_pretes.length > 1 ? 's' : ''}</div>
-    ${r.villes_pretes
+      villesPretesListe.length > 1 ? 's' : ''
+    } prête${villesPretesListe.length > 1 ? 's' : ''}</div>
+    ${villesPretesListe
       .map(
         (v) =>
           `<div style="font-size:15px;color:#1a1a1a;margin-bottom:6px"><strong>${echapper(
@@ -209,6 +299,80 @@ function corps(r: Rapport): { texte: string; html: string } {
       .join('')}
   </div>`
       : '';
+
+  const reactions =
+    adores > 0
+      ? `<div style="background:#f7f5f2;padding:14px 16px;margin:20px 0">
+    <div style="font-size:13px;font-weight:700;color:#7a6a5d;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px">Réactions</div>
+    ${adoresDetail
+      .slice(0, MAX_ADORES_LISTES)
+      .map(
+        (a) =>
+          `<div style="font-size:15px;color:#1a1a1a;margin-bottom:6px"><strong>${echapper(
+            a.titre
+          )}</strong> <span style="color:#888">— ${echapper(a.ville)}</span>${
+            a.combien > 1 ? ` <span style="color:#7a6a5d">×${a.combien}</span>` : ''
+          }</div>`
+      )
+      .join('')}
+    ${
+      adoresDetail.length > MAX_ADORES_LISTES
+        ? `<div style="font-size:13px;color:#888;margin-top:8px">et ${
+            adoresDetail.length - MAX_ADORES_LISTES
+          } autres.</div>`
+        : ''
+    }
+  </div>`
+      : '';
+
+  const production = c
+    ? `<div style="background:#f7f7f7;border-left:3px solid ${
+        c.lots.some(enDefaut) || c.abandonnees.length > 0 ? '#b3402f' : '#3f8f4f'
+      };padding:16px 18px;margin:24px 0">
+    <div style="font-size:13px;font-weight:700;color:#444;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px">Contrôle production (24 h)</div>
+    ${
+      c.lots.length === 0
+        ? '<div style="font-size:14px;color:#666">Aucun lot lancé.</div>'
+        : c.lots
+            .map(
+              (l) =>
+                `<div style="font-size:15px;color:#1a1a1a;margin-bottom:4px">${enDefaut(l) ? '⚠' : '✓'} <strong>${echapper(
+                  l.ville
+                )}</strong> — ${l.demandees} demandées, ${l.creees} créées, ${l.publiables} publiables d'emblée</div>${
+                  l.erreur
+                    ? `<div style="font-size:13px;color:#b3402f;margin:0 0 4px 18px">erreur : ${echapper(l.erreur)}</div>`
+                    : ''
+                }${l.sautees
+                  .slice(0, MAX_RAISONS_PAR_LOT)
+                  .map(
+                    (raison) =>
+                      `<div style="font-size:13px;color:#666;margin:0 0 2px 18px">· ${echapper(raison)}</div>`
+                  )
+                  .join('')}${
+                  l.sautees.length > MAX_RAISONS_PAR_LOT
+                    ? `<div style="font-size:13px;color:#888;margin:0 0 6px 18px">et ${
+                        l.sautees.length - MAX_RAISONS_PAR_LOT
+                      } autres</div>`
+                    : ''
+                }`
+            )
+            .join('')
+    }
+    <div style="font-size:14px;color:#666;margin-top:10px">${c.corrigees} ${accord(
+      c.corrigees,
+      'anecdote corrigée puis publiable',
+      'anecdotes corrigées puis publiables'
+    )}, ${c.en_correction} en cours de correction.</div>
+    ${c.abandonnees
+      .map(
+        (a) =>
+          `<div style="font-size:13px;color:#b3402f;margin-top:6px">✗ Rejetée après 3 corrections : <strong>${echapper(
+            a.ville
+          )}</strong> — ${echapper(a.titre)} <span style="color:#888">(${echapper(a.motif)})</span></div>`
+      )
+      .join('')}
+  </div>`
+    : '';
 
   const relecture =
     r.brouillons > 0
@@ -244,13 +408,25 @@ function corps(r: Rapport): { texte: string; html: string } {
     ${ligneStat(String(r.anecdotes_lues), 'anecdotes lues en tout, rattrapages compris')}
     ${ligneStat(String(r.lecteurs_7j), 'lecteurs actifs sur sept jours')}
     ${r.nouveaux_profils > 0 ? ligneStat(String(r.nouveaux_profils), 'nouveaux comptes') : ''}
+    ${
+      adores > 0
+        ? ligneStat(
+            String(adores),
+            `« J'adore » sur ${adoresDetail.length} ${accord(adoresDetail.length, 'anecdote', 'anecdotes')}`
+          )
+        : ''
+    }
   </table>
+
+  ${reactions}
 
   ${nouvellesDemandes}
 
   ${villesPretes}
 
   ${alerte}
+
+  ${production}
 
   <div style="border-top:1px solid #eee;padding-top:16px;margin-top:24px">
     <p style="font-size:14px;color:#666;margin:0 0 8px">${r.anecdotes_validees} anecdotes validées sur ${r.villes_ouvertes} villes.</p>
@@ -294,15 +470,21 @@ Deno.serve(async (req) => {
     return json({ error: 'Rapport vide' }, 500);
   }
 
-  const { texte, html } = corps(rapport);
+  // Le contrôle est un complément : s'il échoue, le rapport part sans lui.
+  const { data: controle, error: controleError } = await supabase.rpc('controle_production');
+  if (controleError) console.error('Contrôle production', controleError);
+
+  const { texte, html } = corps(rapport, controleError ? null : (controle as Controle));
 
   // Le sujet porte l'essentiel : la plupart des matins, il suffira à lui seul.
   const alerte = rapport.stocks_bas.length > 0 ? ` · ⚠ ${rapport.stocks_bas.length} stock bas` : '';
+  const lotsEnDefaut = controleError ? 0 : ((controle as Controle).lots ?? []).filter(enDefaut).length;
+  const defaut = lotsEnDefaut > 0 ? ` · ⚠ ${lotsEnDefaut} ${accord(lotsEnDefaut, 'lot incomplet', 'lots incomplets')}` : '';
   const sujet = `Anecto — ${rapport.lecteurs}/${rapport.profils} ${accord(
     rapport.lecteurs,
     'lecteur',
     'lecteurs'
-  )} hier${alerte}`;
+  )} hier${alerte}${defaut}`;
 
   try {
     await envoyer(reglages, sujet, texte, html);

@@ -19,6 +19,17 @@
 // signe que le modèle a inventé. Ce qui survit reste malgré tout en `draft`,
 // parce qu'un extrait Wikipédia n'est pas une validation éditoriale.
 //
+// Publiable = verdict `confirme`, confiance `haute`, aucune faute relevée par
+// le vérificateur, et rédaction conforme aux règles de `qualite.ts`. Tout
+// brouillon qui n'y est pas repasse par le mode `corriger` (voir plus bas) :
+// on donne au modèle la liste exacte de ce qui ne va pas, il réécrit, on
+// recontrôle tout. Trois tentatives, puis rejet motivé.
+//
+// Chaque appel laisse une ligne dans `lots_generation` : demandé, obtenu, et
+// la raison de chaque anecdote écartée. Un lot de dix qui en rend trois se
+// lit dans le rapport du lendemain, plus seulement dans une réponse HTTP que
+// personne ne regarde.
+//
 // Le corps de la requête accepte `axe` : `patrimoine` (défaut, le
 // comportement d'origine) ou `personnalites`. Il choisit le gisement
 // Wikipédia du dossier, et avec lui ce dont l'anecdote parlera. Une ville
@@ -31,10 +42,11 @@
 
 import { createClient } from 'npm:@supabase/supabase-js@^2';
 import { chatJSON, DEEPSEEK_MODEL, DeepSeekError } from './deepseek.ts';
-import { type Axe, fetchWikipediaDocs } from './wikipedia.ts';
+import { type Axe, fetchExtract, fetchWikipediaDocs } from './wikipedia.ts';
 import { fetchPatrimoineDocs } from './patrimoine.ts';
 import type { SourceDoc } from './sources.ts';
 import { controler, normalize } from './verification.ts';
+import { controlerRedaction, type Qualite } from './qualite.ts';
 import {
   articleDejaTraite,
   DOUBLON_SYSTEM,
@@ -51,6 +63,9 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
 const MAX_COUNT = 10;
+
+const client = () => createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+type Db = ReturnType<typeof client>;
 
 // Un récit de 320 à 400 mots, pas un paragraphe. Le plancher est là pour
 // refuser un texte court : le modèle, faute de matière, a tendance à rendre
@@ -201,6 +216,8 @@ Vérifie en particulier les dates, les chiffres, les noms propres, et les liens 
 
 Sois bref : trois problèmes au maximum, une phrase chacun, sans recopier de longs passages.
 
+Relève aussi, à part, les fautes d'orthographe, de grammaire, d'accord ou d'accent (« a » pour « à », accent manquant, accord oublié). Cite le mot fautif et sa correction. Une faute n'est pas un problème de fond : elle ne change pas le verdict, mais elle empêche la publication.
+
 Verdicts :
 - "confirme" : tout est soutenu par le dossier.
 - "doute" : le fond est soutenu, mais un détail est absent du dossier ou déformé.
@@ -211,6 +228,7 @@ Réponds uniquement par un objet json de cette forme :
   "verdict": "doute",
   "confiance": "moyenne",
   "problemes": ["le lien entre X et Y n'est pas établi par le dossier"],
+  "fautes": ["« a Lille » → « à Lille »"],
   "notes": "Bref commentaire pour le relecteur humain."
 }
 
@@ -220,6 +238,7 @@ interface Verification {
   verdict: 'confirme' | 'doute' | 'refute';
   confiance: 'haute' | 'moyenne' | 'faible';
   problemes: string[];
+  fautes?: string[];
   notes: string;
 }
 
@@ -273,10 +292,86 @@ type Resultat =
       ok: true;
       redaction: Redaction;
       verification: Verification;
+      qualite: Qualite;
       citations: string[];
       retenus: SourceDoc[];
     }
   | { ok: false; reason: string };
+
+/** La seule définition de « publiable », côté fonction. `est_publiable` en base dit la même chose. */
+function estPubliable(verification: Verification, qualite: Qualite): boolean {
+  return (
+    verification.verdict === 'confirme' &&
+    verification.confiance === 'haute' &&
+    (verification.fautes ?? []).length === 0 &&
+    qualite.ok
+  );
+}
+
+/** Tout ce qui empêche la publication, dans les termes qu'on redonnera au modèle. */
+function problemesDe(verification: Verification, qualite: Qualite): string[] {
+  const liste: string[] = [];
+  if (verification.verdict !== 'confirme' || verification.confiance !== 'haute') {
+    liste.push(
+      `Vérification : verdict ${verification.verdict}, confiance ${verification.confiance}.`,
+      ...(verification.problemes ?? []).map((p) => `Fond : ${p}`)
+    );
+  }
+  liste.push(...(verification.fautes ?? []).map((f) => `Orthographe : ${f}`));
+  liste.push(...qualite.problemes.map((p) => `Rédaction : ${p}`));
+  return liste;
+}
+
+/**
+ * Ne créditer que les documents qui portent réellement une citation
+ * vérifiée, du plus contributif au moins.
+ *
+ * Le dossier compte six ou huit articles, et l'anecdote n'en exploite
+ * presque jamais plus d'un. Créditer tout le dossier produisait une ligne
+ * « Wikipédia — Paris ; Wikipédia — Histoire de Paris ; … » illisible, et
+ * surtout un lien « Source » pointant vers l'article général de la ville —
+ * où le lecteur venu vérifier ne trouvait pas le fait annoncé. Une source
+ * qu'on ne peut pas vérifier ne vaut pas mieux que pas de source.
+ */
+function crediter(docs: SourceDoc[], citations: string[]): SourceDoc[] {
+  const contributions = docs
+    .map((doc) => {
+      const extrait = normalize(doc.extract);
+      return { doc, poids: citations.filter((c) => extrait.includes(normalize(c))).length };
+    })
+    .filter((c) => c.poids > 0)
+    .sort((a, b) => b.poids - a.poids);
+
+  // Filet : les citations ont été validées contre la concaténation du
+  // dossier, une seule pourrait théoriquement chevaucher deux documents.
+  return contributions.length > 0 ? contributions.map((c) => c.doc) : [docs[0]];
+}
+
+async function verifier(
+  apiKey: string,
+  city: string,
+  redaction: Redaction,
+  docs: SourceDoc[]
+): Promise<Verification> {
+  // 2500 et non 800 : le vérificateur cite les passages qu'il conteste, et un
+  // récit de 400 mots lui en donne beaucoup plus qu'un paragraphe. À 800, sa
+  // réponse était coupée en plein JSON — l'erreur remontait alors comme un
+  // « JSON invalide renvoyé par DeepSeek » qui ne disait rien de la cause.
+  const v = await chatJSON<Verification>({
+    apiKey,
+    system: VERIFICATION_SYSTEM,
+    user: verificationPrompt(city, redaction, docs),
+    temperature: 0,
+    maxTokens: 2500,
+  });
+  return {
+    verdict: v?.verdict ?? 'refute',
+    confiance: v?.confiance ?? 'faible',
+    problemes: Array.isArray(v?.problemes) ? v.problemes : [],
+    fautes: Array.isArray(v?.fautes) ? v.fautes : [],
+    notes: v?.notes ?? '',
+  };
+}
 
 interface Doublon {
   doublon: boolean;
@@ -338,26 +433,7 @@ async function generateOne(
   }
   const citations = controle.citationsValides;
 
-  // Ne créditer que les documents qui portent réellement une citation
-  // vérifiée, du plus contributif au moins.
-  //
-  // Le dossier compte six ou huit articles, et l'anecdote n'en exploite
-  // presque jamais plus d'un. Créditer tout le dossier produisait une ligne
-  // « Wikipédia — Paris ; Wikipédia — Histoire de Paris ; … » illisible, et
-  // surtout un lien « Source » pointant vers l'article général de la ville —
-  // où le lecteur venu vérifier ne trouvait pas le fait annoncé. Une source
-  // qu'on ne peut pas vérifier ne vaut pas mieux que pas de source.
-  const contributions = docs
-    .map((doc) => {
-      const extrait = normalize(doc.extract);
-      return { doc, poids: citations.filter((c) => extrait.includes(normalize(c))).length };
-    })
-    .filter((c) => c.poids > 0)
-    .sort((a, b) => b.poids - a.poids);
-
-  // Filet : les citations ont été validées contre la concaténation du
-  // dossier, une seule pourrait théoriquement chevaucher deux documents.
-  const retenus = contributions.length > 0 ? contributions.map((c) => c.doc) : [docs[0]];
+  const retenus = crediter(docs, citations);
 
   // Le thème avant la vérification : un doublon n'a pas à coûter un second
   // appel de relecture.
@@ -398,19 +474,9 @@ async function generateOne(
     }
   }
 
-  // 2500 et non 800 : le vérificateur cite les passages qu'il conteste, et un
-  // récit de 400 mots lui en donne beaucoup plus qu'un paragraphe. À 800, sa
-  // réponse était coupée en plein JSON — l'erreur remontait alors comme un
-  // « JSON invalide renvoyé par DeepSeek » qui ne disait rien de la cause.
   let verification: Verification;
   try {
-    verification = await chatJSON<Verification>({
-      apiKey,
-      system: VERIFICATION_SYSTEM,
-      user: verificationPrompt(city, clean, docs),
-      temperature: 0,
-      maxTokens: 2500,
-    });
+    verification = await verifier(apiKey, city, clean, docs);
   } catch (err) {
     // Une vérification ratée ne condamne que cette anecdote. Auparavant elle
     // remontait jusqu'à l'appelant et emportait toute la ville : sur un lot de
@@ -421,57 +487,374 @@ async function generateOne(
     };
   }
 
-  if (verification?.verdict === 'refute') {
-    return {
-      ok: false,
-      reason: `Rejetée à la vérification : ${(verification.problemes ?? []).join(' ; ') || verification.notes || 'contredit le dossier'}`,
-    };
-  }
+  // Un `refute` n'est plus jeté : il part en brouillon, avec ses problèmes, et
+  // le mode `corriger` tente de le réparer à partir de ses sources. Une seule
+  // affirmation fausse suffisait à perdre un récit entier par ailleurs juste.
+  // Il ne sera jamais publié tel quel : `est_publiable` exige `confirme`.
+  const qualite = controlerRedaction(clean);
 
-  return { ok: true, redaction: clean, verification, citations, retenus };
+  return { ok: true, redaction: clean, verification, qualite, citations, retenus };
 }
 
-// -------------------------------------------------------------------- HTTP
+// -------------------------------------------------------------- correction
 
-Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+// Le nombre de réécritures accordées à un brouillon. Au-delà, ce que le
+// modèle n'a pas su réparer en trois passes ne le sera pas à la quatrième :
+// l'anecdote est rejetée, avec le motif, et la ville peut recevoir un lot neuf.
+const MAX_CORRECTIONS = 3;
+
+// Deux brouillons par appel : une correction coûte deux appels DeepSeek
+// (réécriture, vérification), parfois trois. Au-delà, l'appel frôlerait la
+// limite de durée d'une fonction.
+const MAX_CORRECTIONS_PAR_APPEL = 2;
+
+function correctionPrompt(
+  city: string,
+  redaction: Pick<Redaction, 'titre' | 'accroche' | 'corps' | 'periode'>,
+  problemes: string[],
+  docs: SourceDoc[]
+): string {
+  return `DOSSIER DOCUMENTAIRE SUR ${city.toUpperCase()}
+${dossier(docs)}
+
+=== FIN DU DOSSIER ===
+
+ANECDOTE À CORRIGER
+Titre : ${redaction.titre}
+Accroche : ${redaction.accroche}
+Période annoncée : ${redaction.periode}
+
+${redaction.corps}
+
+=== FIN DE L'ANECDOTE ===
+
+CE QUI EMPÊCHE SA PUBLICATION
+${problemes.map((p) => `- ${p}`).join('\n')}
+
+Corrige cette anecdote pour lever chacun de ces points, sans en créer de nouveaux :
+- une affirmation que le dossier ne soutient pas se supprime ou se reformule pour dire exactement ce que dit le dossier ; ne la remplace jamais par une autre affirmation non sourcée ;
+- chaque faute signalée se corrige ;
+- la forme reste celle demandée : titre, accroche, 320 à 400 mots en 4 ou 5 paragraphes séparés par une ligne vide.
+Garde le même sujet et le même titre si rien ne l'interdit. Recopie de nouveau au moins trois citations exactes du dossier qui établissent le récit corrigé.
+Si le dossier ne permet pas de corriger sans inventer, renvoie trouve = false et explique pourquoi dans raison. Réponds en json.`;
+}
+
+interface Brouillon {
+  id: string;
+  city: string;
+  city_place_id: string | null;
+  title: string;
+  hook: string | null;
+  body: string;
+  period: string | null;
+  sources: Array<{ url?: string; titre?: string; editeur?: string }> | null;
+  verdict: string | null;
+  confidence: string | null;
+  problemes: string[] | null;
+  qualite_ok: boolean | null;
+  corrections: number;
+  generated_by: string | null;
+  verification_notes: string | null;
+}
+
+/**
+ * Le dossier d'un brouillon déjà en base : les documents qu'il crédite,
+ * relus à la source. Plus étroit que le dossier d'origine — c'est voulu :
+ * une correction ne doit s'appuyer que sur ce que l'anecdote cite.
+ */
+async function dossierDe(b: Brouillon): Promise<SourceDoc[]> {
+  const sources = b.sources ?? [];
+  const wiki = sources.filter((s) => s.editeur === 'Wikipédia' && s.titre);
+  const merimee = sources.filter((s) => s.editeur !== 'Wikipédia' && s.titre);
+
+  const [wikiDocs, merimeeDocs] = await Promise.all([
+    Promise.allSettled(wiki.map((s) => fetchExtract(s.titre!))),
+    merimee.length > 0 ? fetchPatrimoineDocs(b.city) : Promise.resolve([]),
+  ]);
+
+  const docs: SourceDoc[] = [];
+  for (const r of wikiDocs) {
+    if (r.status === 'fulfilled' && r.value) docs.push(r.value);
+    else if (r.status === 'rejected') console.error('Wikipédia (correction)', r.reason);
   }
-  if (req.method !== 'POST') {
-    return fail('Méthode non supportée.', 405);
-  }
-  if (!ADMIN_SECRET || req.headers.get('x-anecto-admin-secret') !== ADMIN_SECRET) {
-    return fail('Non autorisé.', 401);
-  }
-  if (!DEEPSEEK_API_KEY) {
-    return fail("DEEPSEEK_API_KEY n'est pas configurée sur la fonction.", 500);
+  const titresMerimee = new Set(merimee.map((s) => s.titre));
+  docs.push(...merimeeDocs.filter((d) => titresMerimee.has(d.title)));
+  return docs;
+}
+
+type Issue = 'publiable' | 'a_reprendre' | 'abandonnee' | 'echec';
+
+interface BilanCorrection {
+  id: string;
+  ville: string;
+  titre: string;
+  issue: Issue;
+  motif: string;
+}
+
+async function corrigerBrouillon(
+  apiKey: string,
+  supabase: Db,
+  b: Brouillon
+): Promise<BilanCorrection> {
+  const axe: Axe = (b.generated_by ?? '').includes('personnalités') ? 'personnalites' : 'patrimoine';
+  const tentative = b.corrections + 1;
+  const avant = {
+    titre: b.title,
+    verdict: b.verdict,
+    confiance: b.confidence,
+    qualite_ok: b.qualite_ok,
+    problemes: b.problemes,
+  };
+  const actuelle = {
+    titre: b.title,
+    accroche: b.hook ?? '',
+    corps: b.body,
+    periode: b.period ?? '',
+  };
+
+  const journal = async (issue: Issue, motif: string, apres: unknown = null) => {
+    await supabase.from('corrections_anecdote').insert({
+      anecdote_id: b.id,
+      tentative,
+      issue,
+      motif,
+      avant,
+      apres,
+    });
+  };
+
+  // Une tentative ratée compte : sans ça, un brouillon dont les sources ont
+  // disparu serait repris toutes les quinze minutes, indéfiniment.
+  const echouer = async (motif: string): Promise<BilanCorrection> => {
+    const abandon = tentative >= MAX_CORRECTIONS;
+    await supabase
+      .from('anecdotes')
+      .update({ corrections: tentative, ...(abandon ? { status: 'rejected' } : {}) })
+      .eq('id', b.id);
+    if (abandon) {
+      await supabase.from('rejets_anecdote').insert({
+        city: b.city,
+        city_place_id: b.city_place_id,
+        titre: b.title,
+        motif: `Non publiable après ${tentative} tentatives de correction. Dernier motif : ${motif}`,
+      });
+    }
+    const issue: Issue = abandon ? 'abandonnee' : 'echec';
+    await journal(issue, motif);
+    return { id: b.id, ville: b.city, titre: b.title, issue, motif };
+  };
+
+  const docs = await dossierDe(b);
+  if (docs.length === 0) {
+    return echouer('Sources introuvables : aucun des documents crédités ne se relit.');
   }
 
-  let body: Record<string, unknown>;
+  // Les brouillons d'avant ce mode n'ont ni problèmes structurés ni contrôle
+  // de rédaction : on les évalue d'abord tels quels, contre le dossier relu.
+  // Certains passent déjà — rien à réécrire.
+  let problemes = b.problemes;
+  if (!problemes || b.qualite_ok === null) {
+    let v: Verification;
+    try {
+      v = await verifier(apiKey, b.city, actuelle as Redaction, docs);
+    } catch (err) {
+      return echouer(`Vérification impossible : ${err instanceof Error ? err.message : String(err)}`);
+    }
+    const q = controlerRedaction(actuelle);
+    problemes = problemesDe(v, q);
+    await supabase
+      .from('anecdotes')
+      .update({
+        verdict: v.verdict,
+        confidence: v.confiance,
+        qualite_ok: q.ok,
+        qualite_problemes: q.problemes,
+        problemes,
+      })
+      .eq('id', b.id);
+    if (estPubliable(v, q)) {
+      await journal('publiable', 'Conforme en l’état après réévaluation.', { verdict: v.verdict, confiance: v.confiance });
+      return { id: b.id, ville: b.city, titre: b.title, issue: 'publiable', motif: 'Conforme en l’état.' };
+    }
+  }
+
+  let redaction: Redaction;
   try {
-    body = await req.json();
-  } catch {
-    return fail('Corps de requête JSON invalide.');
+    redaction = await chatJSON<Redaction>({
+      apiKey,
+      system: redactionSystem(axe),
+      user: correctionPrompt(b.city, actuelle, problemes, docs),
+      temperature: 0.3,
+      maxTokens: 3000,
+    });
+  } catch (err) {
+    return echouer(`Réécriture impossible : ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  const city = typeof body.city === 'string' ? body.city.trim() : '';
-  const cityPlaceId = typeof body.cityPlaceId === 'string' ? body.cityPlaceId : null;
-  const count = Math.min(Math.max(Number(body.count) || 1, 1), MAX_COUNT);
-  // Une valeur inconnue retombe sur `patrimoine` plutôt que d'échouer : les
-  // appelants existants — `produire_lot`, `produire_villes_demandees` — n'en
-  // envoient aucune, et c'est leur comportement d'hier qu'il faut préserver.
-  const axe: Axe = body.axe === 'personnalites' ? 'personnalites' : 'patrimoine';
-
-  if (!city) {
-    return fail('Paramètre `city` manquant.');
+  if (!redaction?.trouve) {
+    return echouer(`Le modèle renonce : ${redaction?.raison || 'aucune raison donnée'}`);
   }
 
+  const clean: Redaction = {
+    ...redaction,
+    titre: String(redaction.titre ?? '').trim(),
+    accroche: String(redaction.accroche ?? '').trim(),
+    corps: String(redaction.corps ?? '').trim(),
+    periode: String(redaction.periode ?? '').trim(),
+  };
+
+  if (clean.corps.length < MIN_BODY_CHARS || clean.corps.length > MAX_BODY_CHARS) {
+    return echouer(`Corps réécrit hors format : ${clean.corps.length} caractères.`);
+  }
+  if (!clean.accroche || clean.accroche.length > MAX_ACCROCHE_CHARS || !clean.titre) {
+    return echouer('Titre ou accroche réécrits absents ou trop longs.');
+  }
+
+  const controle = controler(clean, docs.map((d) => d.extract).join('\n\n'));
+  if (!controle.ok) {
+    return echouer(`Réécriture non sourcée : ${controle.reason}`);
+  }
+
+  let verification: Verification;
+  try {
+    verification = await verifier(apiKey, b.city, clean, docs);
+  } catch (err) {
+    return echouer(`Vérification impossible : ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  const qualite = controlerRedaction(clean);
+  const publiable = estPubliable(verification, qualite);
+  const restants = problemesDe(verification, qualite);
+  const abandon = !publiable && tentative >= MAX_CORRECTIONS;
+  const retenus = crediter(docs, controle.citationsValides);
+  const sources = retenus.map((doc) => ({ url: doc.url, titre: doc.title, editeur: doc.editeur }));
+
+  const miseAJour = {
+    title: clean.titre,
+    hook: clean.accroche,
+    body: clean.corps,
+    period: clean.periode || null,
+    source: sources.map((s) => `${s.editeur} — ${s.titre}`).join(' ; '),
+    source_url: sources[0].url,
+    sources,
+    verdict: verification.verdict,
+    confidence: verification.confiance,
+    verification_notes: notesDe(verification, controle.citationsValides, tentative),
+    qualite_ok: qualite.ok,
+    qualite_problemes: qualite.problemes,
+    problemes: restants,
+    corrections: tentative,
+    ...(abandon ? { status: 'rejected' } : {}),
+  };
+
+  let { error } = await supabase.from('anecdotes').update(miseAJour).eq('id', b.id);
+  // 23505 : le nouveau titre existe déjà dans la ville. On garde l'ancien.
+  if (error?.code === '23505') {
+    ({ error } = await supabase
+      .from('anecdotes')
+      .update({ ...miseAJour, title: b.title })
+      .eq('id', b.id));
+  }
+  if (error) {
+    console.error('Mise à jour après correction', error);
+    return echouer(`Enregistrement impossible : ${error.message}`);
+  }
+
+  const motif = publiable ? 'Corrigée : verdict confirmé, rédaction conforme.' : restants.join(' ; ');
+  if (abandon) {
+    await supabase.from('rejets_anecdote').insert({
+      city: b.city,
+      city_place_id: b.city_place_id,
+      titre: clean.titre,
+      motif: `Non publiable après ${tentative} tentatives de correction : ${motif}`,
+    });
+  }
+
+  const issue: Issue = publiable ? 'publiable' : abandon ? 'abandonnee' : 'a_reprendre';
+  await journal(issue, motif, {
+    titre: clean.titre,
+    verdict: verification.verdict,
+    confiance: verification.confiance,
+    qualite_ok: qualite.ok,
+    problemes: restants,
+  });
+  return { id: b.id, ville: b.city, titre: clean.titre, issue, motif };
+}
+
+function notesDe(verification: Verification, citations: string[], tentative = 0): string {
+  return [
+    `Verdict : ${verification.verdict} (confiance ${verification.confiance}).`,
+    tentative > 0 ? `Après ${tentative} correction(s).` : '',
+    ...(verification.problemes ?? []),
+    ...(verification.fautes ?? []).map((f) => `Faute : ${f}`),
+    verification.notes ?? '',
+    `Citations vérifiées automatiquement dans la source (${citations.length}) :`,
+    ...citations.map((c) => `« ${c} »`),
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+async function corriger(
+  apiKey: string,
+  supabase: Db,
+  limite: number
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const { data: ids, error: idsError } = await supabase.rpc('brouillons_a_corriger', {
+    p_limit: limite,
+  });
+  if (idsError) {
+    return { status: 500, body: { error: idsError.message } };
+  }
+  const liste = ((ids ?? []) as Array<{ id: string }>).map((r) => r.id);
+  if (liste.length === 0) {
+    return { status: 200, body: { corrigees: 0, bilans: [] } };
+  }
+
+  const { data: brouillons, error } = await supabase
+    .from('anecdotes')
+    .select(
+      'id, city, city_place_id, title, hook, body, period, sources, verdict, confidence, problemes, qualite_ok, corrections, generated_by, verification_notes'
+    )
+    .in('id', liste);
+  if (error) {
+    return { status: 500, body: { error: error.message } };
+  }
+
+  const bilans: BilanCorrection[] = [];
+  for (const b of (brouillons ?? []) as Brouillon[]) {
+    try {
+      bilans.push(await corrigerBrouillon(apiKey, supabase, b));
+    } catch (err) {
+      console.error('Correction', b.id, err);
+      bilans.push({
+        id: b.id,
+        ville: b.city,
+        titre: b.title,
+        issue: 'echec',
+        motif: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return { status: 200, body: { corrigees: bilans.length, bilans } };
+}
+
+// -------------------------------------------------------------- génération
+
+async function generer(
+  apiKey: string,
+  supabase: Db,
+  city: string,
+  cityPlaceId: string | null,
+  count: number,
+  axe: Axe
+): Promise<{ status: number; body: Record<string, unknown> }> {
   // L'existant est lu AVANT le dossier : ce sont les articles déjà exploités
   // qui déterminent lesquels on va chercher. C'est ce qui fait tourner le
   // corpus d'une génération à l'autre, et rend atteignables trente anecdotes
   // par ville — sans quoi le modèle revient au même monument indéfiniment.
-  const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-
   const existingQuery = supabase
     .from('anecdotes')
     .select('title, hook, sources, status')
@@ -484,7 +867,7 @@ Deno.serve(async (req) => {
   // rien écrire que réécrire ce qui est déjà publié.
   if (existingError) {
     console.error('Existant', existingError);
-    return json({ created: 0, skipped: [], error: existingError.message }, 500);
+    return { status: 500, body: { created: 0, skipped: [], error: existingError.message } };
   }
 
   const titles: string[] = (existing ?? []).map((row) => row.title);
@@ -517,26 +900,30 @@ Deno.serve(async (req) => {
     docs = await buildDossier(city, articlesExploites, axe);
   } catch (err) {
     console.error('Dossier', err);
-    return json(
-      { created: 0, skipped: [], error: `Ancrage documentaire indisponible : ${err}` },
-      502
-    );
+    return {
+      status: 502,
+      body: { created: 0, skipped: [], error: `Ancrage documentaire indisponible : ${err}` },
+    };
   }
 
   // Pas de dossier, pas d'anecdote : on ne retombe jamais sur la mémoire du
   // modèle, c'est précisément ce qu'on cherche à éviter.
   if (docs.length === 0) {
-    return json({
-      created: 0,
-      skipped: [
-        `Aucune source neuve pour « ${city} » sur l'axe ${axe} : les ${articlesExploites.length} articles disponibles ont tous été exploités.`,
-      ],
-      anecdotes: [],
-    });
+    return {
+      status: 200,
+      body: {
+        created: 0,
+        skipped: [
+          `Aucune source neuve pour « ${city} » sur l'axe ${axe} : les ${articlesExploites.length} articles disponibles ont tous été exploités.`,
+        ],
+        anecdotes: [],
+      },
+    };
   }
   const dossierComplet = docs;
   const created: unknown[] = [];
   const skipped: string[] = [];
+  let publiables = 0;
 
   for (let i = 0; i < count; i++) {
     if (docs.length === 0) {
@@ -546,11 +933,11 @@ Deno.serve(async (req) => {
 
     let result: Resultat;
     try {
-      result = await generateOne(DEEPSEEK_API_KEY, city, docs, titles, existantes, axe);
+      result = await generateOne(apiKey, city, docs, titles, existantes, axe);
     } catch (err) {
       const message = err instanceof DeepSeekError ? err.message : String(err);
       console.error('DeepSeek', message);
-      return json({ created: created.length, skipped, error: message }, 502);
+      return { status: 502, body: { created: created.length, publiables, skipped, error: message } };
     }
 
     if (!result.ok) {
@@ -558,23 +945,13 @@ Deno.serve(async (req) => {
       continue;
     }
 
-    const { redaction, verification, citations, retenus } = result;
+    const { redaction, verification, qualite, citations, retenus } = result;
 
     const sources = retenus.map((doc) => ({
       url: doc.url,
       titre: doc.title,
       editeur: doc.editeur,
     }));
-
-    const notes = [
-      `Verdict : ${verification.verdict} (confiance ${verification.confiance}).`,
-      ...(verification.problemes ?? []),
-      verification.notes ?? '',
-      `Citations vérifiées automatiquement dans la source (${citations.length}) :`,
-      ...citations.map((c) => `« ${c} »`),
-    ]
-      .filter(Boolean)
-      .join('\n');
 
     const { data: inserted, error } = await supabase
       .from('anecdotes')
@@ -595,7 +972,13 @@ Deno.serve(async (req) => {
         // de `verification_notes` reviendrait à publier au gré d'une
         // reformulation du prompt.
         verdict: verification.verdict,
-        verification_notes: notes,
+        verification_notes: notesDe(verification, citations),
+        // Même logique pour la rédaction et l'orthographe : des colonnes, pas
+        // une phrase. `problemes` est vide quand l'anecdote est publiable, et
+        // sinon c'est exactement ce que la correction donnera au modèle.
+        qualite_ok: qualite.ok,
+        qualite_problemes: qualite.problemes,
+        problemes: problemesDe(verification, qualite),
         // L'axe n'apparaît que lorsqu'il n'est pas celui d'origine : les
         // 552 lignes déjà en base gardent leur libellé exact, et une requête
         // sur `generated_by` suffit à retrouver ce qui vient des gens.
@@ -613,10 +996,14 @@ Deno.serve(async (req) => {
         skipped.push(`Doublon : « ${redaction.titre} »`);
       } else {
         console.error('Insertion échouée', error);
-        return json({ created: created.length, skipped, error: error.message }, 500);
+        return {
+          status: 500,
+          body: { created: created.length, publiables, skipped, error: error.message },
+        };
       }
     } else {
       created.push(inserted);
+      if (estPubliable(verification, qualite)) publiables++;
       titles.push(redaction.titre);
       existantes.push({
         titre: redaction.titre,
@@ -633,17 +1020,113 @@ Deno.serve(async (req) => {
     }
   }
 
-  return json({
-    created: created.length,
-    // Rend visible ce qui a réellement nourri le modèle : c'est ici qu'on voit
-    // si Mérimée a répondu, et avec quel volume.
-    dossier: dossierComplet.map((d) => ({
-      origine: d.origine,
-      titre: d.title,
-      url: d.url,
-      caracteres: d.extract.length,
-    })),
-    skipped,
-    anecdotes: created,
+  return {
+    status: 200,
+    body: {
+      created: created.length,
+      // Créées ne veut pas dire publiables : les autres attendent le mode
+      // `corriger`.
+      publiables,
+      // Rend visible ce qui a réellement nourri le modèle : c'est ici qu'on voit
+      // si Mérimée a répondu, et avec quel volume.
+      dossier: dossierComplet.map((d) => ({
+        origine: d.origine,
+        titre: d.title,
+        url: d.url,
+        caracteres: d.extract.length,
+      })),
+      skipped,
+      anecdotes: created,
+    },
+  };
+}
+
+// -------------------------------------------------------------------- HTTP
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
+  if (req.method !== 'POST') {
+    return fail('Méthode non supportée.', 405);
+  }
+  if (!ADMIN_SECRET || req.headers.get('x-anecto-admin-secret') !== ADMIN_SECRET) {
+    return fail('Non autorisé.', 401);
+  }
+  if (!DEEPSEEK_API_KEY) {
+    return fail("DEEPSEEK_API_KEY n'est pas configurée sur la fonction.", 500);
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = await req.json();
+  } catch {
+    return fail('Corps de requête JSON invalide.');
+  }
+
+  const supabase = client();
+  const debut = Date.now();
+
+  // Le journal ne doit jamais faire échouer ce qu'il décrit : une ligne
+  // perdue vaut mieux qu'un lot perdu.
+  const journaliser = async (ligne: Record<string, unknown>) => {
+    const { error } = await supabase
+      .from('lots_generation')
+      .insert({ ...ligne, duree_ms: Date.now() - debut });
+    if (error) console.error('Journal des lots', error);
+  };
+
+  if (body.mode === 'corriger') {
+    const limite = Math.min(Math.max(Number(body.limit) || 1, 1), MAX_CORRECTIONS_PAR_APPEL);
+    const { status, body: reponse } = await corriger(DEEPSEEK_API_KEY, supabase, limite);
+    const bilans = (reponse.bilans ?? []) as BilanCorrection[];
+    if (bilans.length > 0 || reponse.error) {
+      await journaliser({
+        mode: 'correction',
+        demandees: bilans.length,
+        creees: bilans.filter((b) => b.issue !== 'echec').length,
+        publiables: bilans.filter((b) => b.issue === 'publiable').length,
+        sautees: bilans
+          .filter((b) => b.issue !== 'publiable')
+          .map((b) => `${b.ville} — « ${b.titre} » (${b.issue}) : ${b.motif}`),
+        erreur: (reponse.error as string) ?? null,
+      });
+    }
+    return json(reponse, status);
+  }
+
+  const city = typeof body.city === 'string' ? body.city.trim() : '';
+  const cityPlaceId = typeof body.cityPlaceId === 'string' ? body.cityPlaceId : null;
+  const count = Math.min(Math.max(Number(body.count) || 1, 1), MAX_COUNT);
+  // Une valeur inconnue retombe sur `patrimoine` plutôt que d'échouer : les
+  // appelants existants — `produire_lot`, `produire_villes_demandees` — n'en
+  // envoient aucune, et c'est leur comportement d'hier qu'il faut préserver.
+  const axe: Axe = body.axe === 'personnalites' ? 'personnalites' : 'patrimoine';
+
+  if (!city) {
+    return fail('Paramètre `city` manquant.');
+  }
+
+  const { status, body: reponse } = await generer(
+    DEEPSEEK_API_KEY,
+    supabase,
+    city,
+    cityPlaceId,
+    count,
+    axe
+  );
+
+  await journaliser({
+    mode: 'generation',
+    city,
+    city_place_id: cityPlaceId,
+    axe,
+    demandees: count,
+    creees: Number(reponse.created ?? 0),
+    publiables: Number(reponse.publiables ?? 0),
+    sautees: reponse.skipped ?? [],
+    erreur: (reponse.error as string) ?? null,
   });
+
+  return json(reponse, status);
 });
