@@ -488,7 +488,7 @@ async function generateOne(
   }
 
   // Un `refute` n'est plus jeté : il part en brouillon, avec ses problèmes, et
-  // le mode `corriger` tente de le réparer à partir du même dossier. Une seule
+  // le mode `corriger` tente de le réparer à partir de ses sources. Une seule
   // affirmation fausse suffisait à perdre un récit entier par ailleurs juste.
   // Il ne sera jamais publié tel quel : `est_publiable` exige `confirme`.
   const qualite = controlerRedaction(clean);
