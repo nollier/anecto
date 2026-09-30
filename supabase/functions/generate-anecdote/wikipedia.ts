@@ -228,7 +228,7 @@ async function trouverPersonnalites(cityTitle: string): Promise<string[]> {
  *
  *   "exlimit" was too large for a whole article extracts request, lowered to 1.
  */
-async function fetchExtract(title: string): Promise<SourceDoc | null> {
+export async function fetchExtract(title: string): Promise<SourceDoc | null> {
   const data = await call({
     action: 'query',
     prop: 'extracts|info',
