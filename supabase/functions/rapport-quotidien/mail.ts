@@ -44,6 +44,14 @@ export function lireReglages(): Reglages | null {
   };
 }
 
+/** Base64 en lignes de 76 caractères, comme l'exige la RFC 2045. */
+function base64(texte: string): string {
+  const octets = new TextEncoder().encode(texte);
+  let binaire = '';
+  for (const o of octets) binaire += String.fromCharCode(o);
+  return (btoa(binaire).match(/.{1,76}/g) ?? []).join('\r\n');
+}
+
 export async function envoyer(
   reglages: Reglages,
   sujet: string,
@@ -66,8 +74,13 @@ export async function envoyer(
       replyTo: reglages.expediteur,
       to: reglages.destinataire,
       subject: sujet,
-      content: texte,
-      html,
+      // Encodé ici en base64 plutôt que confié à denomailer : son
+      // quoted-printable s'appliquait deux fois sur le HTML long du rapport
+      // (`style=3d"`), et le message arrivait illisible, source brute affichée.
+      mimeContent: [
+        { mimeType: 'text/plain; charset="utf-8"', content: base64(texte), transferEncoding: 'base64' },
+        { mimeType: 'text/html; charset="utf-8"', content: base64(html), transferEncoding: 'base64' },
+      ],
     });
   } finally {
     await client.close();

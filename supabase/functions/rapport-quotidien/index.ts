@@ -77,9 +77,9 @@ interface Controle {
 // un rapport de deux cents lignes ne se lit pas.
 const MAX_ADORES_LISTES = 10;
 
-// Les raisons d'un lot se ressemblent souvent (« Dossier épuisé… ») : trois
-// suffisent à comprendre, le détail est dans `lots_generation`.
-const MAX_RAISONS_PAR_LOT = 3;
+// Le rapport ne donne que les comptes de la production : le détail des
+// brouillons (raisons, motifs de rejet) est dans `lots_generation` et
+// `anecdotes_a_valider`, pas dans un email.
 
 interface Rapport {
   jour: string;
@@ -224,17 +224,12 @@ function corps(r: Rapport, c: Controle | null): { texte: string; html: string } 
       lignes.push(
         `  ${enDefaut(l) ? '⚠' : '✓'} ${l.ville} — ${l.demandees} demandées, ${l.creees} créées, ${l.publiables} publiables d'emblée`
       );
-      if (l.erreur) lignes.push(`      erreur : ${l.erreur}`);
-      for (const raison of l.sautees.slice(0, MAX_RAISONS_PAR_LOT)) lignes.push(`      · ${raison}`);
-      if (l.sautees.length > MAX_RAISONS_PAR_LOT) {
-        lignes.push(`      · et ${l.sautees.length - MAX_RAISONS_PAR_LOT} autres (select * from lots_generation)`);
-      }
     }
     lignes.push(
       `  ${c.corrigees} ${accord(c.corrigees, 'anecdote corrigée puis publiable', 'anecdotes corrigées puis publiables')}, ${c.en_correction} en cours de correction.`
     );
-    for (const a of c.abandonnees) {
-      lignes.push(`  ✗ Rejetée après 3 corrections : ${a.ville} — ${a.titre} (${a.motif})`);
+    if (c.abandonnees.length > 0) {
+      lignes.push(`  ✗ ${c.abandonnees.length} ${accord(c.abandonnees.length, 'rejetée', 'rejetées')} après 3 corrections.`);
     }
   }
 
@@ -338,23 +333,7 @@ function corps(r: Rapport, c: Controle | null): { texte: string; html: string } 
               (l) =>
                 `<div style="font-size:15px;color:#1a1a1a;margin-bottom:4px">${enDefaut(l) ? '⚠' : '✓'} <strong>${echapper(
                   l.ville
-                )}</strong> — ${l.demandees} demandées, ${l.creees} créées, ${l.publiables} publiables d'emblée</div>${
-                  l.erreur
-                    ? `<div style="font-size:13px;color:#b3402f;margin:0 0 4px 18px">erreur : ${echapper(l.erreur)}</div>`
-                    : ''
-                }${l.sautees
-                  .slice(0, MAX_RAISONS_PAR_LOT)
-                  .map(
-                    (raison) =>
-                      `<div style="font-size:13px;color:#666;margin:0 0 2px 18px">· ${echapper(raison)}</div>`
-                  )
-                  .join('')}${
-                  l.sautees.length > MAX_RAISONS_PAR_LOT
-                    ? `<div style="font-size:13px;color:#888;margin:0 0 6px 18px">et ${
-                        l.sautees.length - MAX_RAISONS_PAR_LOT
-                      } autres</div>`
-                    : ''
-                }`
+                )}</strong> — ${l.demandees} demandées, ${l.creees} créées, ${l.publiables} publiables d'emblée</div>`
             )
             .join('')
     }
@@ -363,14 +342,15 @@ function corps(r: Rapport, c: Controle | null): { texte: string; html: string } 
       'anecdote corrigée puis publiable',
       'anecdotes corrigées puis publiables'
     )}, ${c.en_correction} en cours de correction.</div>
-    ${c.abandonnees
-      .map(
-        (a) =>
-          `<div style="font-size:13px;color:#b3402f;margin-top:6px">✗ Rejetée après 3 corrections : <strong>${echapper(
-            a.ville
-          )}</strong> — ${echapper(a.titre)} <span style="color:#888">(${echapper(a.motif)})</span></div>`
-      )
-      .join('')}
+    ${
+      c.abandonnees.length > 0
+        ? `<div style="font-size:13px;color:#b3402f;margin-top:6px">✗ ${c.abandonnees.length} ${accord(
+            c.abandonnees.length,
+            'rejetée',
+            'rejetées'
+          )} après 3 corrections.</div>`
+        : ''
+    }
   </div>`
     : '';
 
