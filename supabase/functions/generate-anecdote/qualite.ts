@@ -12,7 +12,8 @@
 //
 // Aucune API Deno ici : les tests tournent sous Node, comme `verification.ts`.
 
-export const MIN_MOTS = 300;
+// 220 depuis le 2 octobre, avec le plancher en caractères de `index.ts`.
+export const MIN_MOTS = 220;
 export const MAX_MOTS = 430;
 export const MIN_PARAGRAPHES = 4;
 export const MAX_PARAGRAPHES = 5;

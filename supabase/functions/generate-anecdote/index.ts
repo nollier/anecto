@@ -70,7 +70,7 @@ const BUDGET_LOT_MS = 100_000;
 const client = () => createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 type Db = ReturnType<typeof client>;
 
-// Un récit de 320 à 400 mots, pas un paragraphe. Le plancher est là pour
+// Un récit de 240 à 400 mots, pas un paragraphe. Le plancher est là pour
 // refuser un texte court : le modèle, faute de matière, a tendance à rendre
 // trois phrases plutôt qu'à répondre trouve = false.
 //
@@ -79,7 +79,12 @@ type Db = ReturnType<typeof client>;
 // anecdotes qu'on veut pour modèle en font 1800 à 2100, et c'est cette
 // longueur-là qui laisse la place aux dates, aux sommes et aux noms qui font
 // qu'on retient quelque chose.
-const MIN_BODY_CHARS = 1700;
+//
+// 1300 depuis le 2 octobre : à 1700, Arcachon et Lille ne sortaient plus
+// rien. Leurs articles de monuments font 1 400 à 2 000 caractères, trop peu
+// pour 320 mots sans broder, et l'allongement renonçait à juste titre. Mieux
+// vaut un récit de 250 mots tenu qu'une ville à sec.
+const MIN_BODY_CHARS = 1300;
 const MAX_BODY_CHARS = 3800; // la table plafonne à 4000
 const MAX_ACCROCHE_CHARS = 180;
 
@@ -105,12 +110,25 @@ function budget(docs: SourceDoc[], max: number): SourceDoc[] {
  * Le dossier soumis au modèle. Les deux sources sont interrogées en parallèle
  * et indépendamment : si l'une échoue, l'autre fait le travail.
  */
-async function buildDossier(city: string, exclure: string[], axe: Axe): Promise<SourceDoc[]> {
+// Communes dont le nom seul mène ailleurs sur Wikipédia. « Saint-Paul »
+// est une page d'homonymie : la recherche ramenait Paul de Tarse, la
+// basilique de Rome ou Saint-Paul-de-Vence pour une ville qui est à La
+// Réunion. Clé : le place_id Google de la ville.
+const TITRES_WIKIPEDIA: Record<string, string> = {
+  'ChIJZxI5LTF-thIRsDhrFiGIBwQ': 'Saint-Paul (La Réunion)',
+};
+
+async function buildDossier(
+  city: string,
+  exclure: string[],
+  axe: Axe,
+  cityPlaceId: string | null = null
+): Promise<SourceDoc[]> {
   // Mérimée ne décrit que des immeubles protégés : sur l'axe des
   // personnalités, ses notices n'apportent rien et occupent 12 000 caractères
   // du dossier. On ne l'interroge pas, et on économise l'appel.
   const [wiki, merimee] = await Promise.allSettled([
-    fetchWikipediaDocs(city, exclure, axe),
+    fetchWikipediaDocs(city, exclure, axe, cityPlaceId ? TITRES_WIKIPEDIA[cityPlaceId] : undefined),
     axe === 'personnalites' ? Promise.resolve([]) : fetchPatrimoineDocs(city, exclure),
   ]);
 
@@ -153,7 +171,7 @@ FORME ATTENDUE
 
 - "titre" : un hook à deux temps — élément concret, puis rebondissement. Le contraste fait l'accroche. Exemples : « Le fort bâti pour barrer la route aux Anglais est devenu le temple du rock anglo-saxon », « Madras pris pour le roi : récompensé par trois ans de Bastille ». Pas de point final.
 - "accroche" : une seule phrase de 12 à 25 mots, sans point final. Elle plante le décor directement dans le sujet, par un lieu ou une date — aucun préambule.
-- "corps" : 320 à 400 mots, en 4 ou 5 paragraphes séparés par une ligne vide. En dessous de 320 mots le récit est toujours trop maigre : c'est le signe qu'il manque des dates, des sommes ou des noms que le dossier contient pourtant.
+- "corps" : 240 à 400 mots, en 4 ou 5 paragraphes séparés par une ligne vide. En dessous de 240 mots le récit est toujours trop maigre : c'est le signe qu'il manque des dates, des sommes ou des noms que le dossier contient pourtant.
 
 COMMENT RACONTER
 
@@ -179,7 +197,7 @@ RÈGLES ABSOLUES
 - N'écris aucune date, aucun chiffre, aucun nom propre qui ne figure pas dans le dossier. Cela vaut pour l'accroche autant que pour le corps.
 - Recopie dans "citations" les phrases exactes du dossier qui établissent ton récit — caractère pour caractère, sans reformuler, sans couper un mot, sans corriger la ponctuation. Elles sont comparées automatiquement au dossier : une citation approximative fait rejeter tout le travail.
 - Il te faut au moins trois citations distinctes, couvrant les affirmations principales du récit.
-- Si le dossier ne permet pas d'écrire 320 mots sans rien inventer, renvoie trouve = false. C'est une réponse acceptable et attendue : mieux vaut rien qu'un récit brodé.
+- Si le dossier ne permet pas d'écrire 240 mots sans rien inventer, renvoie trouve = false. C'est une réponse acceptable et attendue : mieux vaut rien qu'un récit brodé.
 
 ORTHOGRAPHE
 
@@ -300,7 +318,7 @@ Vérifie chaque affirmation contre le dossier — l'accroche compte autant que l
 
 // Le modèle vise le plancher et reste dessous : sur les lots du 1er et du
 // 2 octobre, 37 récits sur 40 sont sortis entre 1 000 et 1 700 caractères,
-// alors que le prompt demande 320 à 400 mots. Ils étaient jetés sans autre
+// alors que le prompt demandait 320 à 400 mots. Ils étaient jetés sans autre
 // forme de procès, et la ville restait en stock bas. Un récit court mais
 // juste a déjà fait le plus dur — choisir un sujet et le sourcer : on lui
 // redonne une passe pour l'étoffer à partir du même dossier, plutôt que de
@@ -329,10 +347,10 @@ ${redaction.corps}
 
 === FIN DE L'ANECDOTE ===
 
-Ce corps fait ${n} mots (${redaction.corps.length} caractères). Il en faut entre 340 et 400, jamais plus de 400 : au moins 2 000 caractères, en 4 ou 5 paragraphes séparés par une ligne vide.
+Ce corps fait ${n} mots (${redaction.corps.length} caractères). Il en faut entre 260 et 400, jamais plus de 400 : au moins 1 500 caractères, en 4 ou 5 paragraphes séparés par une ligne vide.
 Étoffe-le à partir du dossier : les dates exactes, les noms, les sommes, les dimensions, les circonstances que le dossier donne sur ce même sujet et que le texte n'utilise pas encore. Garde le sujet, le titre et le ton. N'ajoute rien qui ne soit dans le dossier, pas de remplissage ni de phrase générale.
 Recopie au moins trois citations exactes du dossier qui établissent le récit allongé.
-Si le dossier ne contient pas assez de matière sur ce sujet pour atteindre 340 mots sans inventer, renvoie trouve = false et explique pourquoi dans raison. Réponds en json.`;
+Si le dossier ne contient pas assez de matière sur ce sujet pour atteindre 260 mots sans inventer, renvoie trouve = false et explique pourquoi dans raison. Réponds en json.`;
 }
 
 /**
@@ -631,7 +649,7 @@ ${problemes.map((p) => `- ${p}`).join('\n')}
 Corrige cette anecdote pour lever chacun de ces points, sans en créer de nouveaux :
 - une affirmation que le dossier ne soutient pas se supprime ou se reformule pour dire exactement ce que dit le dossier ; ne la remplace jamais par une autre affirmation non sourcée ;
 - chaque faute signalée se corrige ;
-- la forme reste celle demandée : titre, accroche, 320 à 400 mots en 4 ou 5 paragraphes séparés par une ligne vide.
+- la forme reste celle demandée : titre, accroche, 240 à 400 mots en 4 ou 5 paragraphes séparés par une ligne vide.
 Garde le même sujet et le même titre si rien ne l'interdit. Recopie de nouveau au moins trois citations exactes du dossier qui établissent le récit corrigé.
 Si le dossier ne permet pas de corriger sans inventer, renvoie trouve = false et explique pourquoi dans raison. Réponds en json.`;
 }
@@ -1009,7 +1027,7 @@ async function generer(
 
   let docs: SourceDoc[];
   try {
-    docs = await buildDossier(city, articlesExploites, axe);
+    docs = await buildDossier(city, articlesExploites, axe, cityPlaceId);
   } catch (err) {
     console.error('Dossier', err);
     return {

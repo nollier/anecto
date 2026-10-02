@@ -265,13 +265,15 @@ export async function fetchExtract(title: string): Promise<SourceDoc | null> {
  *                C'est ce paramètre qui fait tourner le dossier.
  * @param axe     le gisement dans lequel puiser. Défaut `patrimoine`, qui est
  *                le comportement d'origine.
+ * @param titreImpose article de la commune, quand son nom seul est ambigu.
  */
 export async function fetchWikipediaDocs(
   city: string,
   exclure: string[] = [],
-  axe: Axe = 'patrimoine'
+  axe: Axe = 'patrimoine',
+  titreImpose?: string
 ): Promise<SourceDoc[]> {
-  const cityTitle = await findCityTitle(city);
+  const cityTitle = titreImpose ?? (await findCityTitle(city));
   if (!cityTitle) return [];
 
   const dejaVus = new Set(exclure.map((t) => t.toLowerCase()));
