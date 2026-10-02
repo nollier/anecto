@@ -46,7 +46,7 @@ import { type Axe, fetchExtract, fetchWikipediaDocs } from './wikipedia.ts';
 import { fetchPatrimoineDocs } from './patrimoine.ts';
 import type { SourceDoc } from './sources.ts';
 import { controler, normalize } from './verification.ts';
-import { controlerRedaction, MIN_MOTS, type Qualite } from './qualite.ts';
+import { controlerRedaction, MAX_MOTS, MIN_MOTS, type Qualite } from './qualite.ts';
 import {
   articleDejaTraite,
   DOUBLON_SYSTEM,
@@ -329,7 +329,7 @@ ${redaction.corps}
 
 === FIN DE L'ANECDOTE ===
 
-Ce corps fait ${n} mots (${redaction.corps.length} caractères). Il en faut entre 340 et 400, soit au moins 2 000 caractères, en 4 ou 5 paragraphes séparés par une ligne vide.
+Ce corps fait ${n} mots (${redaction.corps.length} caractères). Il en faut entre 340 et 400, jamais plus de 400 : au moins 2 000 caractères, en 4 ou 5 paragraphes séparés par une ligne vide.
 Étoffe-le à partir du dossier : les dates exactes, les noms, les sommes, les dimensions, les circonstances que le dossier donne sur ce même sujet et que le texte n'utilise pas encore. Garde le sujet, le titre et le ton. N'ajoute rien qui ne soit dans le dossier, pas de remplissage ni de phrase générale.
 Recopie au moins trois citations exactes du dossier qui établissent le récit allongé.
 Si le dossier ne contient pas assez de matière sur ce sujet pour atteindre 340 mots sans inventer, renvoie trouve = false et explique pourquoi dans raison. Réponds en json.`;
@@ -356,6 +356,10 @@ async function allonger(
   if (!r?.trouve) return null;
   const corps = String(r.corps ?? '').trim();
   if (corps.length < MIN_BODY_CHARS || corps.length > MAX_BODY_CHARS) return null;
+  // Le 2 octobre, la première version de cette passe a rendu 520 à 590 mots :
+  // dans les caractères, hors du compte de mots que `qualite.ts` exige.
+  const mots = corps.split(/\s+/).length;
+  if (mots < MIN_MOTS || mots > MAX_MOTS) return null;
   return {
     ...r,
     titre: String(r.titre ?? '').trim() || redaction.titre,
