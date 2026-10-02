@@ -46,7 +46,7 @@ import { type Axe, fetchExtract, fetchWikipediaDocs } from './wikipedia.ts';
 import { fetchPatrimoineDocs } from './patrimoine.ts';
 import type { SourceDoc } from './sources.ts';
 import { controler, normalize } from './verification.ts';
-import { controlerRedaction, type Qualite } from './qualite.ts';
+import { controlerRedaction, MIN_MOTS, type Qualite } from './qualite.ts';
 import {
   articleDejaTraite,
   DOUBLON_SYSTEM,
@@ -63,6 +63,9 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
 const MAX_COUNT = 10;
+// Sous la limite de 150 s d'une Edge Function, marge comprise pour le
+// dernier récit commencé.
+const BUDGET_LOT_MS = 100_000;
 
 const client = () => createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 type Db = ReturnType<typeof client>;
@@ -216,19 +219,27 @@ Vérifie en particulier les dates, les chiffres, les noms propres, et les liens 
 
 Sois bref : trois problèmes au maximum, une phrase chacun, sans recopier de longs passages.
 
-Relève aussi, à part, les fautes d'orthographe, de grammaire, d'accord ou d'accent (« a » pour « à », accent manquant, accord oublié). Cite le mot fautif et sa correction. Une faute n'est pas un problème de fond : elle ne change pas le verdict, mais elle empêche la publication.
+Ce qui n'est PAS un problème, et ne doit ni figurer dans "problemes" ni abaisser le verdict :
+- une omission : l'anecdote raconte un épisode, pas tout le dossier. Ne relève jamais ce qu'elle « omet », « ne précise pas » ou « ne mentionne pas ».
+- une reformulation fidèle, un résumé, un ordre de récit différent de celui du dossier.
+- un nom ou une date écrits de deux façons dans le dossier lui-même, tant que l'anecdote reprend l'une des deux.
+- une remarque que tu conclus toi-même par « ce qui est cohérent », « pas de problème » ou « acceptable » : ne l'écris pas.
+
+Relève aussi, à part, les fautes d'orthographe, de grammaire, d'accord ou d'accent DE L'ANECDOTE (« a » pour « à », accent manquant, accord oublié). Cite le mot fautif et sa correction. Les fautes du dossier ne te concernent pas, et un mot correctement écrit n'est pas une faute. Une faute n'est pas un problème de fond : elle ne change pas le verdict, mais elle empêche la publication. Sans faute, "fautes" est une liste vide.
 
 Verdicts :
-- "confirme" : tout est soutenu par le dossier.
-- "doute" : le fond est soutenu, mais un détail est absent du dossier ou déformé.
+- "confirme" : chaque affirmation de l'anecdote est soutenue par le dossier. C'est le verdict attendu d'un texte fidèle, même s'il laisse de côté une partie du dossier.
+- "doute" : une affirmation précise (date, chiffre, nom, lien de cause) est absente du dossier ou déformée.
 - "refute" : une affirmation contredit le dossier, ou l'essentiel n'y figure pas.
+
+confiance dit à quel point tu es sûr de ton verdict : "haute" quand tu as pu confronter chaque affirmation au dossier.
 
 Réponds uniquement par un objet json de cette forme :
 {
-  "verdict": "doute",
-  "confiance": "moyenne",
-  "problemes": ["le lien entre X et Y n'est pas établi par le dossier"],
-  "fautes": ["« a Lille » → « à Lille »"],
+  "verdict": "confirme",
+  "confiance": "haute",
+  "problemes": [],
+  "fautes": [],
   "notes": "Bref commentaire pour le relecteur humain."
 }
 
@@ -283,6 +294,75 @@ Période annoncée : ${redaction.periode}
 ${redaction.corps}
 
 Vérifie chaque affirmation contre le dossier — l'accroche compte autant que le corps — et réponds en json.`;
+}
+
+// ------------------------------------------------------------- allongement
+
+// Le modèle vise le plancher et reste dessous : sur les lots du 1er et du
+// 2 octobre, 37 récits sur 40 sont sortis entre 1 000 et 1 700 caractères,
+// alors que le prompt demande 320 à 400 mots. Ils étaient jetés sans autre
+// forme de procès, et la ville restait en stock bas. Un récit court mais
+// juste a déjà fait le plus dur — choisir un sujet et le sourcer : on lui
+// redonne une passe pour l'étoffer à partir du même dossier, plutôt que de
+// repartir de zéro.
+//
+// En dessous de ce seuil, il n'y a pas de récit à étoffer : trois phrases.
+const MIN_CHARS_A_ALLONGER = 800;
+
+function allongementPrompt(
+  city: string,
+  redaction: Pick<Redaction, 'titre' | 'accroche' | 'corps' | 'periode'>,
+  docs: SourceDoc[]
+): string {
+  const n = redaction.corps.trim().split(/\s+/).length;
+  return `DOSSIER DOCUMENTAIRE SUR ${city.toUpperCase()}
+${dossier(docs)}
+
+=== FIN DU DOSSIER ===
+
+ANECDOTE TROP COURTE
+Titre : ${redaction.titre}
+Accroche : ${redaction.accroche}
+Période annoncée : ${redaction.periode}
+
+${redaction.corps}
+
+=== FIN DE L'ANECDOTE ===
+
+Ce corps fait ${n} mots (${redaction.corps.length} caractères). Il en faut entre 340 et 400, soit au moins 2 000 caractères, en 4 ou 5 paragraphes séparés par une ligne vide.
+Étoffe-le à partir du dossier : les dates exactes, les noms, les sommes, les dimensions, les circonstances que le dossier donne sur ce même sujet et que le texte n'utilise pas encore. Garde le sujet, le titre et le ton. N'ajoute rien qui ne soit dans le dossier, pas de remplissage ni de phrase générale.
+Recopie au moins trois citations exactes du dossier qui établissent le récit allongé.
+Si le dossier ne contient pas assez de matière sur ce sujet pour atteindre 340 mots sans inventer, renvoie trouve = false et explique pourquoi dans raison. Réponds en json.`;
+}
+
+/**
+ * Une passe pour amener un corps trop court au format. Rend la rédaction
+ * allongée, ou null si le modèle renonce ou rend encore un texte hors format.
+ */
+async function allonger(
+  apiKey: string,
+  axe: Axe,
+  city: string,
+  redaction: Redaction,
+  docs: SourceDoc[]
+): Promise<Redaction | null> {
+  const r = await chatJSON<Redaction>({
+    apiKey,
+    system: redactionSystem(axe),
+    user: allongementPrompt(city, redaction, docs),
+    temperature: 0.4,
+    maxTokens: 3000,
+  });
+  if (!r?.trouve) return null;
+  const corps = String(r.corps ?? '').trim();
+  if (corps.length < MIN_BODY_CHARS || corps.length > MAX_BODY_CHARS) return null;
+  return {
+    ...r,
+    titre: String(r.titre ?? '').trim() || redaction.titre,
+    accroche: String(r.accroche ?? '').trim() || redaction.accroche,
+    corps,
+    periode: String(r.periode ?? '').trim() || redaction.periode,
+  };
 }
 
 // ------------------------------------------------------------- génération
@@ -401,30 +481,43 @@ async function generateOne(
     return { ok: false, reason: redaction?.raison || "Rien d'exploitable dans le dossier." };
   }
 
-  const titre = String(redaction.titre ?? '').trim();
-  const accroche = String(redaction.accroche ?? '').trim();
-  const corps = String(redaction.corps ?? '').trim();
-
-  if (!titre) {
-    return { ok: false, reason: 'Titre manquant.' };
-  }
-  if (!accroche || accroche.length > MAX_ACCROCHE_CHARS) {
-    return { ok: false, reason: `Accroche absente ou trop longue (${accroche.length} caractères).` };
-  }
-  if (corps.length < MIN_BODY_CHARS || corps.length > MAX_BODY_CHARS) {
-    return {
-      ok: false,
-      reason: `Corps hors format : ${corps.length} caractères, attendu entre ${MIN_BODY_CHARS} et ${MAX_BODY_CHARS}.`,
-    };
-  }
-
-  const clean: Redaction = {
+  let clean: Redaction = {
     ...redaction,
-    titre,
-    accroche,
-    corps,
+    titre: String(redaction.titre ?? '').trim(),
+    accroche: String(redaction.accroche ?? '').trim(),
+    corps: String(redaction.corps ?? '').trim(),
     periode: String(redaction.periode ?? '').trim(),
   };
+
+  if (!clean.titre) {
+    return { ok: false, reason: 'Titre manquant.' };
+  }
+  if (!clean.accroche || clean.accroche.length > MAX_ACCROCHE_CHARS) {
+    return { ok: false, reason: `Accroche absente ou trop longue (${clean.accroche.length} caractères).` };
+  }
+  if (clean.corps.length >= MIN_CHARS_A_ALLONGER && clean.corps.length < MIN_BODY_CHARS) {
+    const avant = clean.corps.length;
+    let allongee: Redaction | null = null;
+    try {
+      allongee = await allonger(apiKey, axe, city, clean, docs);
+    } catch (err) {
+      // Une passe ratée ne condamne que ce récit, pas le lot.
+      console.error('Allongement', err);
+    }
+    if (!allongee) {
+      return {
+        ok: false,
+        reason: `Corps hors format : ${avant} caractères, attendu entre ${MIN_BODY_CHARS} et ${MAX_BODY_CHARS}, et l'allongement n'a pas abouti.`,
+      };
+    }
+    clean = allongee;
+  }
+  if (clean.corps.length < MIN_BODY_CHARS || clean.corps.length > MAX_BODY_CHARS) {
+    return {
+      ok: false,
+      reason: `Corps hors format : ${clean.corps.length} caractères, attendu entre ${MIN_BODY_CHARS} et ${MAX_BODY_CHARS}.`,
+    };
+  }
 
   const sourceText = docs.map((d) => d.extract).join('\n\n');
   const controle = controler(clean, sourceText);
@@ -696,13 +789,28 @@ async function corrigerBrouillon(
     return echouer(`Le modèle renonce : ${redaction?.raison || 'aucune raison donnée'}`);
   }
 
-  const clean: Redaction = {
+  let clean: Redaction = {
     ...redaction,
     titre: String(redaction.titre ?? '').trim(),
     accroche: String(redaction.accroche ?? '').trim(),
     corps: String(redaction.corps ?? '').trim(),
     periode: String(redaction.periode ?? '').trim(),
   };
+
+  // Même dérive qu'à la génération : la réécriture raccourcit, et le
+  // contrôle de rédaction la recale pour quelques mots (« 296 mots, attendu
+  // entre 300 et 430 »). Une passe d'allongement avant de conclure.
+  const motsCorps = clean.corps.split(/\s+/).filter(Boolean).length;
+  if (
+    clean.corps.length >= MIN_CHARS_A_ALLONGER &&
+    (clean.corps.length < MIN_BODY_CHARS || motsCorps < MIN_MOTS)
+  ) {
+    try {
+      clean = (await allonger(apiKey, axe, b.city, clean, docs)) ?? clean;
+    } catch (err) {
+      console.error('Allongement (correction)', err);
+    }
+  }
 
   if (clean.corps.length < MIN_BODY_CHARS || clean.corps.length > MAX_BODY_CHARS) {
     return echouer(`Corps réécrit hors format : ${clean.corps.length} caractères.`);
@@ -925,7 +1033,15 @@ async function generer(
   const skipped: string[] = [];
   let publiables = 0;
 
+  const debut = Date.now();
   for (let i = 0; i < count; i++) {
+    // Chaque récit coûte jusqu'à quatre appels DeepSeek depuis l'allongement.
+    // On s'arrête avant la limite de durée de la fonction : ce qui est écrit
+    // est enregistré, le reste viendra au lot suivant.
+    if (Date.now() - debut > BUDGET_LOT_MS) {
+      skipped.push(`Temps écoulé après ${i} tentative(s) : le reste du lot est reporté.`);
+      break;
+    }
     if (docs.length === 0) {
       skipped.push(`Dossier épuisé après ${created.length} anecdote(s) : chaque article a déjà servi.`);
       break;
