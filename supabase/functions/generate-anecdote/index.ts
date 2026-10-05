@@ -49,9 +49,9 @@ import { controler, normalize } from './verification.ts';
 import { controlerRedaction, MAX_MOTS, MIN_MOTS, type Qualite } from './qualite.ts';
 import {
   articleDejaTraite,
+  articlesSpecifiques,
   DOUBLON_SYSTEM,
   doublonPrompt,
-  estArticleGeneral,
   type Existante,
 } from './doublons.ts';
 import { corsHeaders, fail, json } from './http.ts';
@@ -66,6 +66,10 @@ const MAX_COUNT = 10;
 // Sous la limite de 150 s d'une Edge Function, marge comprise pour le
 // dernier récit commencé.
 const BUDGET_LOT_MS = 100_000;
+// Échecs d'affilée tolérés sans que le dossier ait changé. Au-delà, les
+// essais suivants tourneraient sur la même matière : Strasbourg, le
+// 5 octobre, a dépensé six rédactions sur un article déjà exploité.
+const MAX_ECHECS_A_VIDE = 3;
 
 const client = () => createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 type Db = ReturnType<typeof client>;
@@ -279,7 +283,12 @@ function dossier(docs: SourceDoc[]): string {
     .join('\n\n');
 }
 
-function redactionPrompt(city: string, docs: SourceDoc[], existingTitles: string[]): string {
+function redactionPrompt(
+  city: string,
+  docs: SourceDoc[],
+  existingTitles: string[],
+  refuses: string[] = []
+): string {
   // Sans cette consigne, le modèle revient au document le plus volumineux du
   // dossier et enchaîne trois anecdotes sur le même monument : éviter un titre
   // déjà pris ne suffit pas, il faut demander de changer de document.
@@ -290,12 +299,22 @@ function redactionPrompt(city: string, docs: SourceDoc[], existingTitles: string
           .join('\n')}\n\nChoisis un sujet tiré d'un AUTRE document du dossier que ceux-là. Le dossier compte plusieurs articles : sers-t'en.`
       : '';
 
+  // Le 5 octobre, Lille a proposé dix fois l'hôpital Sainte-Eugénie sous
+  // dix titres, et dix fois le contrôle des doublons l'a refusé : rien ne
+  // disait au modèle que le sujet venait d'être écarté.
+  const dejaRefuses =
+    refuses.length > 0
+      ? `\n\nSujets proposés plus tôt dans ce lot et refusés parce qu'ils doublent une anecdote existante :\n${refuses
+          .map((t) => `- ${t}`)
+          .join('\n')}\n\nN'y reviens sous aucun angle : ni le même monument, ni la même personne, ni le même événement. Choisis un autre sujet, ou renvoie trouve = false si le dossier n'en offre pas.`
+      : '';
+
   return `DOSSIER DOCUMENTAIRE SUR ${city.toUpperCase()}
 ${dossier(docs)}
 
 === FIN DU DOSSIER ===
 
-Écris une anecdote d'histoire locale sur ${city}, uniquement à partir du dossier ci-dessus. Réponds en json.${dejaVues}`;
+Écris une anecdote d'histoire locale sur ${city}, uniquement à partir du dossier ci-dessus. Réponds en json.${dejaVues}${dejaRefuses}`;
 }
 
 function verificationPrompt(city: string, redaction: Redaction, docs: SourceDoc[]): string {
@@ -398,7 +417,15 @@ type Resultat =
       citations: string[];
       retenus: SourceDoc[];
     }
-  | { ok: false; reason: string };
+  | {
+      ok: false;
+      reason: string;
+      // Renseignés quand la candidate est écartée comme doublon : son titre,
+      // pour que le modèle n'y revienne pas, et les articles spécifiques
+      // qu'elle a crédités, qui sortent du dossier pour la suite du lot.
+      sujet?: string;
+      articles?: string[];
+    };
 
 /** La seule définition de « publiable », côté fonction. `est_publiable` en base dit la même chose. */
 function estPubliable(verification: Verification, qualite: Qualite): boolean {
@@ -487,12 +514,13 @@ async function generateOne(
   docs: SourceDoc[],
   existingTitles: string[],
   existantes: Existante[],
-  axe: Axe
+  axe: Axe,
+  refuses: string[] = []
 ): Promise<Resultat> {
   const redaction = await chatJSON<Redaction>({
     apiKey,
     system: redactionSystem(axe),
-    user: redactionPrompt(city, docs, existingTitles),
+    user: redactionPrompt(city, docs, existingTitles, refuses),
     // Le dossier borne déjà le contenu ; un peu de liberté sert seulement à
     // ne pas ressortir toujours le même passage.
     temperature: 0.7,
@@ -561,6 +589,8 @@ async function generateOne(
     return {
       ok: false,
       reason: `Thème déjà traité : « ${clean.titre} » reprend l'article « ${memeArticle.article} », déjà exploité par « ${memeArticle.titre} ».`,
+      sujet: clean.titre,
+      articles: articlesSpecifiques(retenus.map((d) => d.title), city),
     };
   }
 
@@ -585,6 +615,8 @@ async function generateOne(
       return {
         ok: false,
         reason: `Thème déjà traité : « ${clean.titre} » double « ${doublon?.titre || '?'} ». ${doublon?.raison ?? ''}`.trim(),
+        sujet: clean.titre,
+        articles: articlesSpecifiques(retenus.map((d) => d.title), city),
       };
     }
   }
@@ -1054,6 +1086,8 @@ async function generer(
   const created: unknown[] = [];
   const skipped: string[] = [];
   let publiables = 0;
+  const refuses: string[] = [];
+  let echecsAVide = 0;
 
   const debut = Date.now();
   for (let i = 0; i < count; i++) {
@@ -1068,10 +1102,16 @@ async function generer(
       skipped.push(`Dossier épuisé après ${created.length} anecdote(s) : chaque article a déjà servi.`);
       break;
     }
+    if (echecsAVide >= MAX_ECHECS_A_VIDE) {
+      skipped.push(
+        `Lot arrêté après ${i} tentative(s) : ${MAX_ECHECS_A_VIDE} échecs d'affilée sur un dossier inchangé, il n'offre plus de sujet neuf.`
+      );
+      break;
+    }
 
     let result: Resultat;
     try {
-      result = await generateOne(apiKey, city, docs, titles, existantes, axe);
+      result = await generateOne(apiKey, city, docs, titles, existantes, axe, refuses);
     } catch (err) {
       const message = err instanceof DeepSeekError ? err.message : String(err);
       console.error('DeepSeek', message);
@@ -1080,6 +1120,16 @@ async function generer(
 
     if (!result.ok) {
       skipped.push(result.reason);
+      if (result.sujet) refuses.push(result.sujet);
+      // Un doublon sort ses articles spécifiques du dossier, comme une
+      // anecdote créée : sans ça, le modèle revient au même document à
+      // l'essai suivant, et le contrôle le refuse de nouveau.
+      const avant = docs.length;
+      if (result.articles?.length) {
+        const ecartes = new Set(result.articles);
+        docs = docs.filter((d) => !ecartes.has(d.title));
+      }
+      echecsAVide = docs.length < avant ? 0 : echecsAVide + 1;
       continue;
     }
 
@@ -1132,6 +1182,8 @@ async function generer(
       // 23505 = index unique (city_place_id, lower(title)) : déjà générée.
       if (error.code === '23505') {
         skipped.push(`Doublon : « ${redaction.titre} »`);
+        refuses.push(redaction.titre);
+        echecsAVide++;
       } else {
         console.error('Insertion échouée', error);
         return {
@@ -1141,6 +1193,7 @@ async function generer(
       }
     } else {
       created.push(inserted);
+      echecsAVide = 0;
       if (estPubliable(verification, qualite)) publiables++;
       titles.push(redaction.titre);
       existantes.push({
@@ -1151,9 +1204,7 @@ async function generer(
       // L'article spécifique qui vient de servir sort du dossier : les
       // suivantes du lot doivent puiser ailleurs, pas tourner autour du même
       // monument sous un autre titre.
-      const servis = new Set(
-        retenus.filter((d) => !estArticleGeneral(d.title, city)).map((d) => d.title)
-      );
+      const servis = new Set(articlesSpecifiques(retenus.map((d) => d.title), city));
       docs = docs.filter((d) => !servis.has(d.title));
     }
   }

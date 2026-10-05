@@ -3,7 +3,12 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { articleDejaTraite, estArticleGeneral, type Existante } from './doublons.ts';
+import {
+  articleDejaTraite,
+  articlesSpecifiques,
+  estArticleGeneral,
+  type Existante,
+} from './doublons.ts';
 
 const EXISTANTES: Existante[] = [
   { titre: "L'aqueduc oublié", accroche: null, articles: ['Aqueduc du Gier'] },
@@ -38,4 +43,12 @@ test('un article neuf passe', () => {
     articleDejaTraite(['Gare de Saint-Chamond'], EXISTANTES, 'Saint-Chamond'),
     null
   );
+});
+
+test("un doublon n'épuise que ses articles spécifiques, jamais ceux de la ville", () => {
+  assert.deepEqual(
+    articlesSpecifiques(['Lille', 'Histoire de Lille', 'Hôpital Sainte-Eugénie de Lille'], 'Lille'),
+    ['Hôpital Sainte-Eugénie de Lille']
+  );
+  assert.deepEqual(articlesSpecifiques(['Saint-Malo'], 'Saint-Malo'), []);
 });
