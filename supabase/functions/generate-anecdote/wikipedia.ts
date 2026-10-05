@@ -265,13 +265,15 @@ export async function fetchExtract(title: string): Promise<SourceDoc | null> {
  *                C'est ce paramètre qui fait tourner le dossier.
  * @param axe     le gisement dans lequel puiser. Défaut `patrimoine`, qui est
  *                le comportement d'origine.
+ * @param titreImpose article de la commune, quand son nom seul est ambigu.
  */
 export async function fetchWikipediaDocs(
   city: string,
   exclure: string[] = [],
-  axe: Axe = 'patrimoine'
+  axe: Axe = 'patrimoine',
+  titreImpose?: string
 ): Promise<SourceDoc[]> {
-  const cityTitle = await findCityTitle(city);
+  const cityTitle = titreImpose ?? (await findCityTitle(city));
   if (!cityTitle) return [];
 
   const dejaVus = new Set(exclure.map((t) => t.toLowerCase()));
@@ -319,10 +321,28 @@ export async function fetchWikipediaDocs(
   resultats.forEach((resultat, i) => {
     if (resultat.status === 'rejected') {
       console.error(`Wikipédia « ${titres[i]} »`, resultat.reason);
-    } else if (resultat.value) {
+    } else if (resultat.value && parleDe(resultat.value, cityTitle, city)) {
       docs.push(resultat.value);
     }
   });
 
   return docs;
+}
+
+/**
+ * L'article mentionne-t-il la ville ?
+ *
+ * Les liens de la page ville filtrés par `PATRIMOINE` ramènent aussi des
+ * articles de portée générale : « Habitation à loyer modéré (France) »,
+ * « Hôtel-Dieu », « Église (édifice) ». Le 2 octobre, le dossier de
+ * Saint-Chamond n'était fait que de ceux-là, et le lot de dix est revenu
+ * vide : le modèle a refusé, à raison, d'écrire sur la ville à partir
+ * d'articles qui ne la nomment pas.
+ */
+export function parleDe(doc: SourceDoc, cityTitle: string, city: string): boolean {
+  const plat = (t: string) =>
+    t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[-‐‑'’]/g, ' ').toLowerCase();
+  const texte = plat(`${doc.title}\n${doc.extract}`);
+  const noms = [cityTitle.replace(/\s*\(.*\)$/, ''), city].map(plat).filter(Boolean);
+  return noms.some((n) => texte.includes(n));
 }
