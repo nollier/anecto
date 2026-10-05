@@ -1,35 +1,11 @@
--- JAMAIS APPLIQUÉE EN BASE. Inscrite dans l'historique le 30 septembre
--- (« repair ») pour que `supabase db push` ne la rejoue pas : son cron
--- `produire_lot(6, 30)` écraserait `reassortir_stock_bas`, planifié le 28
--- (`production_par_lots_de_dix`). Sa fonction `rapport_quotidien` n'a pas
--- existé non plus : ses deux listes (demandes, villes prêtes) sont reprises
--- par `rapport_quotidien_complet`, avec les « J'adore ».
+-- Le rapport quotidien, enfin le même en base et dans le dépôt.
 --
--- Réassort automatique des villes déjà ouvertes, et le rapport qui les nomme.
---
--- `produire_lot` existe depuis les premières villes, mais n'a jamais été
--- planifiée : le rapport se contentait d'imprimer la commande à lancer à la
--- main dès qu'un lecteur approchait de la fin de sa ville. Comme pour les
--- villes demandées (`produire_villes_demandees`, planifiée depuis le 5
--- septembre), l'écart avec la cible ne demande aucun jugement humain — seul
--- le déclenchement manquait.
---
--- Une fois par jour, avant le rapport de 6 h : le temps qu'une génération se
--- termine (jusqu'à soixante appels DeepSeek) et que la validation
--- automatique, qui tourne toutes les quinze minutes, rattrape le lot.
-select cron.unschedule('anecto-reassort-stock-bas')
- where exists (select 1 from cron.job where jobname = 'anecto-reassort-stock-bas');
+-- Trois versions se sont succédé sans jamais coexister : celle du 11
+-- septembre en base (« J'adore »), celle du 27 dans le dépôt (demandes de
+-- ville et villes prêtes, jamais appliquée), et la fonction `rapport-quotidien`
+-- qui lisait l'une ou l'autre selon ce qu'elle recevait. Celle-ci réunit les
+-- quatre listes. La fonction d'envoi les lit toutes déjà.
 
-select cron.schedule(
-  'anecto-reassort-stock-bas',
-  '0 5 * * *',
-  $$select public.produire_lot(6, 30)$$
-);
-
--- Le rapport nommait jusqu'ici un compte, jamais une ville : « 2 demandes de
--- ville en attente » n'indique pas si c'est Vannes ou Biarritz, et « ta ville
--- est prête » partait déjà au bon moment sans que ça se voie ici. Deux champs
--- de plus, bornés à la même journée que le reste du rapport.
 drop function if exists public.rapport_quotidien();
 
 create function public.rapport_quotidien()
@@ -45,6 +21,8 @@ returns table (
   brouillons int,
   demandes_en_attente int,
   stocks_bas jsonb,
+  adores int,
+  adores_detail jsonb,
   nouvelles_demandes jsonb,
   villes_pretes jsonb
 )
@@ -60,6 +38,13 @@ as $$
       from public.user_anecdote_history h, bornes b
      where h.read_at is not null
        and (h.read_at at time zone 'Europe/Paris')::date = b.hier
+  ),
+  adores_hier as (
+    select f.anecdote_id, count(*)::int as combien
+      from public.feedback f, bornes b
+     where f.type = 'adore'
+       and (f.created_at at time zone 'Europe/Paris')::date = b.hier
+     group by f.anecdote_id
   ),
   restants as (
     select p.id,
@@ -99,6 +84,14 @@ as $$
          from restants r
          join auth.users u on u.id = r.id
         where r.restantes <= 3),
+      '[]'::jsonb
+    ),
+    (select coalesce(sum(combien), 0)::int from adores_hier),
+    coalesce(
+      (select jsonb_agg(jsonb_build_object('ville', a.city, 'titre', a.title, 'combien', h.combien)
+                        order by h.combien desc, a.city, a.title)
+         from adores_hier h
+         join public.anecdotes a on a.id = h.anecdote_id),
       '[]'::jsonb
     ),
     -- Demandées hier : ce que la production automatique a déjà pris en charge

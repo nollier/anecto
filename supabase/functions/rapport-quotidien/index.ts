@@ -13,10 +13,11 @@
 // fait son travail ? Demandé, obtenu, publiable, et pourquoi le reste a été
 // écarté (`controle_production`).
 //
-// Les champs du rapport sont lus avec prudence (`?? []`) : la fonction SQL
-// `rapport_quotidien` en base et celle du dépôt ont divergé (« J'adore »
-// d'un côté, demandes et villes prêtes de l'autre). Ce fichier affiche ce
-// qu'il reçoit, sans tomber sur ce qui manque.
+// Les listes du rapport sont lues avec prudence (`?? []`) : la fonction SQL
+// `rapport_quotidien` a longtemps différé entre la base et le dépôt
+// (« J'adore » d'un côté, demandes et villes prêtes de l'autre), jusqu'à
+// `rapport_quotidien_complet` qui les réunit. Si elles divergent de nouveau,
+// le rapport part quand même, avec ce qu'il reçoit.
 //
 // Rien n'est marqué comme envoyé ici, contrairement aux autres alertes : un
 // rapport quotidien se recalcule intégralement à chaque passage. S'il échoue,
