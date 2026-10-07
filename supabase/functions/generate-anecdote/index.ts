@@ -30,6 +30,14 @@
 // lit dans le rapport du lendemain, plus seulement dans une réponse HTTP que
 // personne ne regarde.
 //
+// Depuis le 7 octobre, un lot ne fait plus lire le dossier entier à chaque
+// essai. Il choisit d'abord ses sujets en un seul appel, vérifie que chacun
+// repose sur une phrase réelle d'un article réel (voir `plan.ts`), puis les
+// rédige un par un à partir de ce seul article. Les sujets attendent dans
+// `sujets_anecdote` : ce qu'un appel n'a pas le temps d'écrire, le mode
+// `poursuivre` (toutes les cinq minutes) l'écrit. Un lot qui finit sous sa
+// cible est replanifié pour ce qui manque, trois fois au plus.
+//
 // Le corps de la requête accepte `axe` : `patrimoine` (défaut, le
 // comportement d'origine) ou `personnalites`. Il choisit le gisement
 // Wikipédia du dossier, et avec lui ce dont l'anecdote parlera. Une ville
@@ -41,19 +49,23 @@
 // être appelée depuis l'app.
 
 import { createClient } from 'npm:@supabase/supabase-js@^2';
-import { chatJSON, DEEPSEEK_MODEL, DeepSeekError } from './deepseek.ts';
+import { chatJSON, DEEPSEEK_MODEL } from './deepseek.ts';
 import { type Axe, fetchExtract, fetchWikipediaDocs } from './wikipedia.ts';
 import { fetchPatrimoineDocs } from './patrimoine.ts';
 import type { SourceDoc } from './sources.ts';
 import { controler, normalize } from './verification.ts';
 import { controlerRedaction, MAX_MOTS, MIN_MOTS, type Qualite } from './qualite.ts';
+import { articleDejaTraite, articlesSpecifiques, type Existante } from './doublons.ts';
 import {
-  articleDejaTraite,
-  articlesSpecifiques,
-  DOUBLON_SYSTEM,
-  doublonPrompt,
-  type Existante,
-} from './doublons.ts';
+  DOUBLONS_PLAN_SYSTEM,
+  doublonsPlanPrompt,
+  numerosDoublons,
+  PLAN_SYSTEM,
+  planPrompt,
+  type SujetRetenu,
+  sujetImpose,
+  trierPropositions,
+} from './plan.ts';
 import { corsHeaders, fail, json } from './http.ts';
 
 const ADMIN_SECRET = Deno.env.get('ANECTO_ADMIN_SECRET');
@@ -63,13 +75,13 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
 const MAX_COUNT = 10;
-// Sous la limite de 150 s d'une Edge Function, marge comprise pour le
-// dernier récit commencé.
-const BUDGET_LOT_MS = 100_000;
-// Échecs d'affilée tolérés sans que le dossier ait changé. Au-delà, les
-// essais suivants tourneraient sur la même matière : Strasbourg, le
-// 5 octobre, a dépensé six rédactions sur un article déjà exploité.
-const MAX_ECHECS_A_VIDE = 3;
+// Un récit (rédaction, allongement éventuel, vérification) prend jusqu'à
+// 90 s. On n'en commence plus passé ce délai : la limite d'une Edge Function
+// est de 150 s, et un récit coupé en route est un récit payé pour rien. Ce qui
+// reste est écrit par le mode `poursuivre`.
+const DEBUT_MAX_REDACTION_MS = 50_000;
+// Récits écrits en parallèle : deux appels DeepSeek simultanés, pas plus.
+const REDACTIONS_SIMULTANEES = 2;
 
 const client = () => createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 type Db = ReturnType<typeof client>;
@@ -283,38 +295,17 @@ function dossier(docs: SourceDoc[]): string {
     .join('\n\n');
 }
 
-function redactionPrompt(
-  city: string,
-  docs: SourceDoc[],
-  existingTitles: string[],
-  refuses: string[] = []
-): string {
-  // Sans cette consigne, le modèle revient au document le plus volumineux du
-  // dossier et enchaîne trois anecdotes sur le même monument : éviter un titre
-  // déjà pris ne suffit pas, il faut demander de changer de document.
-  const dejaVues =
-    existingTitles.length > 0
-      ? `\n\nAnecdotes déjà enregistrées pour cette ville :\n${existingTitles
-          .map((t) => `- ${t}`)
-          .join('\n')}\n\nChoisis un sujet tiré d'un AUTRE document du dossier que ceux-là. Le dossier compte plusieurs articles : sers-t'en.`
-      : '';
-
-  // Le 5 octobre, Lille a proposé dix fois l'hôpital Sainte-Eugénie sous
-  // dix titres, et dix fois le contrôle des doublons l'a refusé : rien ne
-  // disait au modèle que le sujet venait d'être écarté.
-  const dejaRefuses =
-    refuses.length > 0
-      ? `\n\nSujets proposés plus tôt dans ce lot et refusés parce qu'ils doublent une anecdote existante :\n${refuses
-          .map((t) => `- ${t}`)
-          .join('\n')}\n\nN'y reviens sous aucun angle : ni le même monument, ni la même personne, ni le même événement. Choisis un autre sujet, ou renvoie trouve = false si le dossier n'en offre pas.`
-      : '';
-
+// Le sujet est choisi et sourcé avant d'arriver ici (voir `plan.ts`) : le
+// modèle ne reçoit que l'article qui le porte, et la consigne de s'y tenir.
+function redactionPrompt(city: string, docs: SourceDoc[], sujet: SujetRetenu): string {
   return `DOSSIER DOCUMENTAIRE SUR ${city.toUpperCase()}
 ${dossier(docs)}
 
 === FIN DU DOSSIER ===
 
-Écris une anecdote d'histoire locale sur ${city}, uniquement à partir du dossier ci-dessus. Réponds en json.${dejaVues}${dejaRefuses}`;
+${sujetImpose(sujet)}
+
+Écris une anecdote d'histoire locale sur ${city}, uniquement à partir du dossier ci-dessus. Réponds en json.`;
 }
 
 function verificationPrompt(city: string, redaction: Redaction, docs: SourceDoc[]): string {
@@ -408,25 +399,6 @@ async function allonger(
 
 // ------------------------------------------------------------- génération
 
-type Resultat =
-  | {
-      ok: true;
-      redaction: Redaction;
-      verification: Verification;
-      qualite: Qualite;
-      citations: string[];
-      retenus: SourceDoc[];
-    }
-  | {
-      ok: false;
-      reason: string;
-      // Renseignés quand la candidate est écartée comme doublon : son titre,
-      // pour que le modèle n'y revienne pas, et les articles spécifiques
-      // qu'elle a crédités, qui sortent du dossier pour la suite du lot.
-      sujet?: string;
-      articles?: string[];
-    };
-
 /** La seule définition de « publiable », côté fonction. `est_publiable` en base dit la même chose. */
 function estPubliable(verification: Verification, qualite: Qualite): boolean {
   return (
@@ -502,145 +474,225 @@ async function verifier(
   };
 }
 
-interface Doublon {
-  doublon: boolean;
-  titre?: string;
-  raison?: string;
+// --------------------------------------------------------------- rédaction
+
+/** Un sujet choisi et sourcé par le plan, en attente dans `sujets_anecdote`. */
+interface Sujet {
+  id: string;
+  lot_id: string | null;
+  city: string;
+  city_place_id: string | null;
+  axe: string;
+  sujet: string;
+  angle: string;
+  faits: string[] | null;
+  citation: string;
+  article: string;
+  url: string;
+  editeur: string;
+  origine: SourceDoc['origine'];
+  extrait: string;
+  tentatives: number;
 }
 
-async function generateOne(
-  apiKey: string,
-  city: string,
-  docs: SourceDoc[],
-  existingTitles: string[],
-  existantes: Existante[],
-  axe: Axe,
-  refuses: string[] = []
-): Promise<Resultat> {
-  const redaction = await chatJSON<Redaction>({
-    apiKey,
-    system: redactionSystem(axe),
-    user: redactionPrompt(city, docs, existingTitles, refuses),
-    // Le dossier borne déjà le contenu ; un peu de liberté sert seulement à
-    // ne pas ressortir toujours le même passage.
-    temperature: 0.7,
-    maxTokens: 3000,
-  });
+interface BilanSujet {
+  sujet: string;
+  ok: boolean;
+  publiable: boolean;
+  motif: string;
+}
 
-  if (!redaction?.trouve) {
-    return { ok: false, reason: redaction?.raison || "Rien d'exploitable dans le dossier." };
+// Une panne (DeepSeek, réseau) laisse au sujet une seconde chance ; un refus
+// du modèle ou un contrôle raté, non : le sujet était mal choisi.
+const MAX_TENTATIVES_SUJET = 2;
+
+interface Existant {
+  existantes: Existante[];
+  articlesExploites: string[];
+}
+
+/**
+ * Ce que la ville a déjà : anecdotes en vie, et, pour le plan, sujets en
+ * attente (ils comptent comme écrits) et sujets ratés (leur article sort du
+ * dossier, il a déjà été essayé).
+ */
+async function lireExistant(
+  supabase: Db,
+  city: string,
+  cityPlaceId: string | null,
+  avecSujets: boolean
+): Promise<Existant> {
+  const anecdotesQuery = supabase.from('anecdotes').select('title, hook, sources, status').limit(500);
+  const { data: anecdotes, error } = cityPlaceId
+    ? await anecdotesQuery.eq('city_place_id', cityPlaceId)
+    : await anecdotesQuery.eq('city', city);
+  // Sans l'existant, le contrôle des doublons ne voit rien : mieux vaut ne
+  // rien écrire que réécrire ce qui est déjà publié.
+  if (error) throw new Error(`Existant illisible : ${error.message}`);
+
+  const articlesDe = (sources: unknown) =>
+    ((sources ?? []) as Array<{ titre?: string }>)
+      .map((s) => s.titre)
+      .filter((t): t is string => typeof t === 'string');
+
+  // Une anecdote rejetée ne bloque pas son thème — elle l'a souvent été parce
+  // qu'elle parlait d'autre chose que de la ville.
+  const existantes: Existante[] = (anecdotes ?? [])
+    .filter((row) => row.status !== 'rejected')
+    .map((row) => ({ titre: row.title, accroche: row.hook ?? null, articles: articlesDe(row.sources) }));
+  const articles = (anecdotes ?? []).flatMap((row) => articlesDe(row.sources));
+
+  if (avecSujets) {
+    const sujetsQuery = supabase
+      .from('sujets_anecdote')
+      .select('sujet, angle, article, statut')
+      .in('statut', ['a_rediger', 'en_cours', 'echoue'])
+      .limit(500);
+    const { data: sujets, error: sujetsError } = cityPlaceId
+      ? await sujetsQuery.eq('city_place_id', cityPlaceId)
+      : await sujetsQuery.eq('city', city);
+    if (sujetsError) throw new Error(`Sujets illisibles : ${sujetsError.message}`);
+    for (const s of sujets ?? []) {
+      if (s.statut !== 'echoue') existantes.push({ titre: s.sujet, accroche: s.angle, articles: [s.article] });
+      // L'article général d'une ville porte d'autres sujets : un échec ne l'épuise pas.
+      articles.push(...articlesSpecifiques([s.article], city));
+    }
   }
 
-  let clean: Redaction = {
-    ...redaction,
-    titre: String(redaction.titre ?? '').trim(),
-    accroche: String(redaction.accroche ?? '').trim(),
-    corps: String(redaction.corps ?? '').trim(),
-    periode: String(redaction.periode ?? '').trim(),
+  return { existantes, articlesExploites: [...new Set(articles)] };
+}
+
+async function redigerSujet(apiKey: string, supabase: Db, s: Sujet): Promise<BilanSujet> {
+  const axe: Axe = s.axe === 'personnalites' ? 'personnalites' : 'patrimoine';
+  const doc: SourceDoc = {
+    origine: s.origine,
+    title: s.article,
+    url: s.url,
+    editeur: s.editeur,
+    extract: s.extrait,
+  };
+  const docs = [doc];
+  const nom = `${s.city} — ${s.sujet}`;
+
+  const conclure = async (statut: 'redige' | 'echoue' | 'a_rediger', motif: string, extra = {}) => {
+    await supabase.from('sujets_anecdote').update({ statut, motif, ...extra }).eq('id', s.id);
+    if (s.lot_id) {
+      await supabase.rpc('actualiser_lot', {
+        p_lot: s.lot_id,
+        p_sautees: statut === 'echoue' ? [`${nom} : ${motif}`] : [],
+      });
+    }
+  };
+  const echouer = async (motif: string): Promise<BilanSujet> => {
+    await conclure('echoue', motif);
+    return { sujet: nom, ok: false, publiable: false, motif };
   };
 
-  if (!clean.titre) {
-    return { ok: false, reason: 'Titre manquant.' };
-  }
-  if (!clean.accroche || clean.accroche.length > MAX_ACCROCHE_CHARS) {
-    return { ok: false, reason: `Accroche absente ou trop longue (${clean.accroche.length} caractères).` };
-  }
-  if (clean.corps.length >= MIN_CHARS_A_ALLONGER && clean.corps.length < MIN_BODY_CHARS) {
-    const avant = clean.corps.length;
-    let allongee: Redaction | null = null;
-    try {
-      allongee = await allonger(apiKey, axe, city, clean, docs);
-    } catch (err) {
-      // Une passe ratée ne condamne que ce récit, pas le lot.
-      console.error('Allongement', err);
-    }
-    if (!allongee) {
-      return {
-        ok: false,
-        reason: `Corps hors format : ${avant} caractères, attendu entre ${MIN_BODY_CHARS} et ${MAX_BODY_CHARS}, et l'allongement n'a pas abouti.`,
-      };
-    }
-    clean = allongee;
-  }
-  if (clean.corps.length < MIN_BODY_CHARS || clean.corps.length > MAX_BODY_CHARS) {
-    return {
-      ok: false,
-      reason: `Corps hors format : ${clean.corps.length} caractères, attendu entre ${MIN_BODY_CHARS} et ${MAX_BODY_CHARS}.`,
-    };
-  }
-
-  const sourceText = docs.map((d) => d.extract).join('\n\n');
-  const controle = controler(clean, sourceText);
-  if (!controle.ok) {
-    return { ok: false, reason: controle.reason! };
-  }
-  const citations = controle.citationsValides;
-
-  const retenus = crediter(docs, citations);
-
-  // Le thème avant la vérification : un doublon n'a pas à coûter un second
-  // appel de relecture.
-  const memeArticle = articleDejaTraite(
-    retenus.map((d) => d.title),
-    existantes,
-    city
-  );
-  if (memeArticle) {
-    return {
-      ok: false,
-      reason: `Thème déjà traité : « ${clean.titre} » reprend l'article « ${memeArticle.article} », déjà exploité par « ${memeArticle.titre} ».`,
-      sujet: clean.titre,
-      articles: articlesSpecifiques(retenus.map((d) => d.title), city),
-    };
-  }
-
-  if (existantes.length > 0) {
-    let doublon: Doublon;
-    try {
-      doublon = await chatJSON<Doublon>({
-        apiKey,
-        system: DOUBLON_SYSTEM,
-        user: doublonPrompt(city, clean, existantes),
-        temperature: 0,
-        maxTokens: 400,
-      });
-    } catch (err) {
-      // Sans réponse, on ne sait pas : l'anecdote n'est pas enregistrée.
-      return {
-        ok: false,
-        reason: `Contrôle des doublons impossible : ${err instanceof Error ? err.message : String(err)}`,
-      };
-    }
-    if (doublon?.doublon !== false) {
-      return {
-        ok: false,
-        reason: `Thème déjà traité : « ${clean.titre} » double « ${doublon?.titre || '?'} ». ${doublon?.raison ?? ''}`.trim(),
-        sujet: clean.titre,
-        articles: articlesSpecifiques(retenus.map((d) => d.title), city),
-      };
-    }
-  }
-
-  let verification: Verification;
   try {
-    verification = await verifier(apiKey, city, clean, docs);
-  } catch (err) {
-    // Une vérification ratée ne condamne que cette anecdote. Auparavant elle
-    // remontait jusqu'à l'appelant et emportait toute la ville : sur un lot de
-    // trois, une réponse malformée en faisait perdre trois.
-    return {
-      ok: false,
-      reason: `Vérification impossible : ${err instanceof Error ? err.message : String(err)}`,
+    const redaction = await chatJSON<Redaction>({
+      apiKey,
+      system: redactionSystem(axe),
+      user: redactionPrompt(s.city, docs, { ...s, faits: s.faits ?? [] }),
+      temperature: 0.5,
+      maxTokens: 3000,
+    });
+    if (!redaction?.trouve) {
+      return echouer(`Le modèle renonce : ${redaction?.raison || 'aucune raison donnée'}`);
+    }
+
+    let clean: Redaction = {
+      ...redaction,
+      titre: String(redaction.titre ?? '').trim(),
+      accroche: String(redaction.accroche ?? '').trim(),
+      corps: String(redaction.corps ?? '').trim(),
+      periode: String(redaction.periode ?? '').trim(),
     };
+    if (!clean.titre) return echouer('Titre manquant.');
+    if (!clean.accroche || clean.accroche.length > MAX_ACCROCHE_CHARS) {
+      return echouer(`Accroche absente ou trop longue (${clean.accroche.length} caractères).`);
+    }
+    if (clean.corps.length >= MIN_CHARS_A_ALLONGER && clean.corps.length < MIN_BODY_CHARS) {
+      const avant = clean.corps.length;
+      let allongee: Redaction | null = null;
+      try {
+        allongee = await allonger(apiKey, axe, s.city, clean, docs);
+      } catch (err) {
+        console.error('Allongement', err);
+      }
+      if (!allongee) {
+        return echouer(
+          `Corps hors format : ${avant} caractères, attendu entre ${MIN_BODY_CHARS} et ${MAX_BODY_CHARS}, et l'allongement n'a pas abouti.`
+        );
+      }
+      clean = allongee;
+    }
+    if (clean.corps.length < MIN_BODY_CHARS || clean.corps.length > MAX_BODY_CHARS) {
+      return echouer(
+        `Corps hors format : ${clean.corps.length} caractères, attendu entre ${MIN_BODY_CHARS} et ${MAX_BODY_CHARS}.`
+      );
+    }
+
+    const controle = controler(clean, doc.extract);
+    if (!controle.ok) return echouer(controle.reason!);
+    const citations = controle.citationsValides;
+
+    // Entre le plan et la rédaction, un autre lot a pu exploiter l'article.
+    const { existantes } = await lireExistant(supabase, s.city, s.city_place_id, false);
+    const deja = articleDejaTraite([doc.title], existantes, s.city);
+    if (deja) return echouer(`« ${doc.title} » a déjà servi à « ${deja.titre} ».`);
+
+    const verification = await verifier(apiKey, s.city, clean, docs);
+    // Un `refute` part en brouillon avec ses problèmes : le mode `corriger`
+    // tente de le réparer. Il ne sera jamais publié tel quel.
+    const qualite = controlerRedaction(clean);
+    const publiable = estPubliable(verification, qualite);
+
+    const { data: inserted, error } = await supabase
+      .from('anecdotes')
+      .insert({
+        city: s.city,
+        city_place_id: s.city_place_id,
+        title: clean.titre,
+        hook: clean.accroche,
+        body: clean.corps,
+        period: clean.periode || null,
+        source: `${doc.editeur} — ${doc.title}`,
+        source_url: doc.url,
+        sources: [{ url: doc.url, titre: doc.title, editeur: doc.editeur }],
+        confidence: verification.confiance ?? 'faible',
+        verdict: verification.verdict,
+        verification_notes: notesDe(verification, citations),
+        qualite_ok: qualite.ok,
+        qualite_problemes: qualite.problemes,
+        problemes: problemesDe(verification, qualite),
+        // L'axe n'apparaît que lorsqu'il n'est pas celui d'origine : le mode
+        // `corriger` le relit dans ce libellé.
+        generated_by: `deepseek:${DEEPSEEK_MODEL} + ${doc.origine}${
+          axe === 'personnalites' ? ' (axe personnalités)' : ''
+        }`,
+        status: 'draft',
+      })
+      .select('id')
+      .single();
+
+    if (error) {
+      // 23505 = index unique (city_place_id, lower(title)).
+      if (error.code === '23505') return echouer(`Titre déjà pris : « ${clean.titre} ».`);
+      throw new Error(`Insertion échouée : ${error.message}`);
+    }
+
+    const motif = publiable ? 'Publiable.' : problemesDe(verification, qualite).join(' ; ');
+    await conclure('redige', motif, { anecdote_id: inserted.id, publiable });
+    return { sujet: nom, ok: true, publiable, motif };
+  } catch (err) {
+    const motif = err instanceof Error ? err.message : String(err);
+    console.error('Rédaction', s.id, motif);
+    if (s.tentatives < MAX_TENTATIVES_SUJET) {
+      await conclure('a_rediger', `Interrompue, reprise au prochain passage : ${motif}`);
+      return { sujet: nom, ok: false, publiable: false, motif };
+    }
+    return echouer(motif);
   }
-
-  // Un `refute` n'est plus jeté : il part en brouillon, avec ses problèmes, et
-  // le mode `corriger` tente de le réparer à partir de ses sources. Une seule
-  // affirmation fausse suffisait à perdre un récit entier par ailleurs juste.
-  // Il ne sera jamais publié tel quel : `est_publiable` exige `confirme`.
-  const qualite = controlerRedaction(clean);
-
-  return { ok: true, redaction: clean, verification, qualite, citations, retenus };
 }
 
 // -------------------------------------------------------------- correction
@@ -1003,6 +1055,141 @@ async function corriger(
   return { status: 200, body: { corrigees: bilans.length, bilans } };
 }
 
+// -------------------------------------------------------------------- plan
+
+interface Lot {
+  id: string;
+  city: string;
+  city_place_id: string | null;
+  axe: string;
+}
+
+interface BilanPlan {
+  ville: string;
+  axe: Axe;
+  retenus: number;
+  ecartes: string[];
+}
+
+/**
+ * Choisit jusqu'à `combien` sujets pour le lot et les met en attente. Un seul
+ * appel lit le dossier entier ; tout ce qui suit ne lit qu'un article.
+ */
+async function planifier(
+  apiKey: string,
+  supabase: Db,
+  lot: Lot,
+  combien: number,
+  axe: Axe
+): Promise<BilanPlan> {
+  const bilan = (retenus: number, ecartes: string[]): BilanPlan => ({ ville: lot.city, axe, retenus, ecartes });
+
+  // Compté avant l'appel : un plan qui plante a coûté, il compte dans les trois.
+  await supabase.rpc('actualiser_lot', { p_lot: lot.id, p_planification: true });
+
+  const { existantes, articlesExploites } = await lireExistant(supabase, lot.city, lot.city_place_id, true);
+  const docs = await buildDossier(lot.city, articlesExploites, axe, lot.city_place_id);
+
+  // Pas de dossier, pas d'anecdote : on ne retombe jamais sur la mémoire du
+  // modèle. Et pas d'appel payant pour le constater.
+  if (docs.length === 0) {
+    const ecartes = [
+      `Aucune source neuve pour « ${lot.city} » sur l'axe ${axe} : les ${articlesExploites.length} articles disponibles ont déjà servi.`,
+    ];
+    await supabase.rpc('actualiser_lot', { p_lot: lot.id, p_sautees: ecartes });
+    return bilan(0, ecartes);
+  }
+
+  // Quelques propositions de plus que nécessaire : le tri en écarte.
+  const plan = await chatJSON<{ sujets?: unknown }>({
+    apiKey,
+    system: PLAN_SYSTEM,
+    user: planPrompt(lot.city, dossier(docs), Math.min(combien + 4, 14), existantes),
+    temperature: 0.3,
+    maxTokens: 4000,
+  });
+
+  const tri = trierPropositions(plan?.sujets, docs, existantes, lot.city);
+  let retenus = tri.retenus;
+  const ecartes = [...tri.ecartes];
+
+  if (retenus.length > 0 && existantes.length > 0) {
+    try {
+      const reponse = await chatJSON<unknown>({
+        apiKey,
+        system: DOUBLONS_PLAN_SYSTEM,
+        user: doublonsPlanPrompt(lot.city, retenus, existantes),
+        temperature: 0,
+        maxTokens: 800,
+      });
+      const doublons = numerosDoublons(reponse, retenus.length);
+      ecartes.push(
+        ...retenus
+          .filter((_, i) => doublons.has(i + 1))
+          .map((r) => `« ${r.sujet} » : thème déjà traité.`)
+      );
+      retenus = retenus.filter((_, i) => !doublons.has(i + 1));
+    } catch (err) {
+      // Sans réponse, on ne sait pas : mieux vaut un plan perdu qu'un doublon.
+      ecartes.push(`Contrôle des doublons impossible : ${err instanceof Error ? err.message : String(err)}`);
+      retenus = [];
+    }
+  }
+
+  retenus = retenus.slice(0, combien);
+  const parTitre = new Map(docs.map((d) => [d.title, d]));
+  if (retenus.length > 0) {
+    const { error } = await supabase.from('sujets_anecdote').insert(
+      retenus.map((r) => {
+        const doc = parTitre.get(r.article)!;
+        return {
+          lot_id: lot.id,
+          city: lot.city,
+          city_place_id: lot.city_place_id,
+          axe,
+          sujet: r.sujet,
+          angle: r.angle,
+          faits: r.faits,
+          citation: r.citation,
+          article: doc.title,
+          url: doc.url,
+          editeur: doc.editeur,
+          origine: doc.origine,
+          extrait: doc.extract,
+        };
+      })
+    );
+    if (error) throw new Error(`Sujets non enregistrés : ${error.message}`);
+  }
+
+  await supabase.rpc('actualiser_lot', {
+    p_lot: lot.id,
+    p_sautees: retenus.length < combien ? [`Plan ${axe} : ${retenus.length} sujet(s) retenu(s) sur ${combien}.`, ...ecartes] : [],
+  });
+  return bilan(retenus.length, ecartes);
+}
+
+/** Écrit les sujets en attente, deux à la fois, tant que le temps le permet. */
+async function rediger(apiKey: string, supabase: Db, debut: number, lotId: string | null) {
+  const bilans: BilanSujet[] = [];
+  while (Date.now() - debut < DEBUT_MAX_REDACTION_MS) {
+    // Un à un plutôt que tout le lot d'un coup : ce qui n'est pas réservé
+    // reste disponible pour le passage suivant si le temps manque.
+    const { data, error } = await supabase.rpc('reserver_sujets', {
+      p_limit: REDACTIONS_SIMULTANEES,
+      p_lot: lotId,
+    });
+    if (error) {
+      console.error('Réservation des sujets', error);
+      break;
+    }
+    const sujets = (data ?? []) as Sujet[];
+    if (sujets.length === 0) break;
+    bilans.push(...(await Promise.all(sujets.map((s) => redigerSujet(apiKey, supabase, s)))));
+  }
+  return bilans;
+}
+
 // -------------------------------------------------------------- génération
 
 async function generer(
@@ -1013,221 +1200,74 @@ async function generer(
   count: number,
   axe: Axe
 ): Promise<{ status: number; body: Record<string, unknown> }> {
-  // L'existant est lu AVANT le dossier : ce sont les articles déjà exploités
-  // qui déterminent lesquels on va chercher. C'est ce qui fait tourner le
-  // corpus d'une génération à l'autre, et rend atteignables trente anecdotes
-  // par ville — sans quoi le modèle revient au même monument indéfiniment.
-  const existingQuery = supabase
-    .from('anecdotes')
-    .select('title, hook, sources, status')
-    .limit(500);
-  const { data: existing, error: existingError } = cityPlaceId
-    ? await existingQuery.eq('city_place_id', cityPlaceId)
-    : await existingQuery.eq('city', city);
-
-  // Sans l'existant, le contrôle des doublons ne voit rien : mieux vaut ne
-  // rien écrire que réécrire ce qui est déjà publié.
-  if (existingError) {
-    console.error('Existant', existingError);
-    return { status: 500, body: { created: 0, skipped: [], error: existingError.message } };
-  }
-
-  const titles: string[] = (existing ?? []).map((row) => row.title);
-
-  // Ce qu'un lecteur peut recevoir ou recevra : publié, ou en attente de
-  // relecture. Une anecdote rejetée ne bloque pas son thème — elle l'a
-  // souvent été parce qu'elle parlait d'autre chose que de la ville.
-  const existantes: Existante[] = (existing ?? [])
-    .filter((row) => row.status !== 'rejected')
-    .map((row) => ({
-      titre: row.title,
-      accroche: row.hook ?? null,
-      articles: ((row.sources ?? []) as Array<{ titre?: string }>)
-        .map((s) => s.titre)
-        .filter((t): t is string => typeof t === 'string'),
-    }));
-
-  const articlesExploites = [
-    ...new Set(
-      (existing ?? []).flatMap((row) =>
-        ((row.sources ?? []) as Array<{ titre?: string }>)
-          .map((s) => s.titre)
-          .filter((t): t is string => typeof t === 'string')
-      )
-    ),
-  ];
-
-  let docs: SourceDoc[];
-  try {
-    docs = await buildDossier(city, articlesExploites, axe, cityPlaceId);
-  } catch (err) {
-    console.error('Dossier', err);
-    return {
-      status: 502,
-      body: { created: 0, skipped: [], error: `Ancrage documentaire indisponible : ${err}` },
-    };
-  }
-
-  // Pas de dossier, pas d'anecdote : on ne retombe jamais sur la mémoire du
-  // modèle, c'est précisément ce qu'on cherche à éviter.
-  if (docs.length === 0) {
-    return {
-      status: 200,
-      body: {
-        created: 0,
-        skipped: [
-          `Aucune source neuve pour « ${city} » sur l'axe ${axe} : les ${articlesExploites.length} articles disponibles ont tous été exploités.`,
-        ],
-        anecdotes: [],
-      },
-    };
-  }
-  const dossierComplet = docs;
-  const created: unknown[] = [];
-  const skipped: string[] = [];
-  let publiables = 0;
-  const refuses: string[] = [];
-  let echecsAVide = 0;
-
   const debut = Date.now();
-  for (let i = 0; i < count; i++) {
-    // Chaque récit coûte jusqu'à quatre appels DeepSeek depuis l'allongement.
-    // On s'arrête avant la limite de durée de la fonction : ce qui est écrit
-    // est enregistré, le reste viendra au lot suivant.
-    if (Date.now() - debut > BUDGET_LOT_MS) {
-      skipped.push(`Temps écoulé après ${i} tentative(s) : le reste du lot est reporté.`);
-      break;
-    }
-    if (docs.length === 0) {
-      skipped.push(`Dossier épuisé après ${created.length} anecdote(s) : chaque article a déjà servi.`);
-      break;
-    }
-    if (echecsAVide >= MAX_ECHECS_A_VIDE) {
-      skipped.push(
-        `Lot arrêté après ${i} tentative(s) : ${MAX_ECHECS_A_VIDE} échecs d'affilée sur un dossier inchangé, il n'offre plus de sujet neuf.`
-      );
-      break;
-    }
-
-    let result: Resultat;
-    try {
-      result = await generateOne(apiKey, city, docs, titles, existantes, axe, refuses);
-    } catch (err) {
-      const message = err instanceof DeepSeekError ? err.message : String(err);
-      console.error('DeepSeek', message);
-      return { status: 502, body: { created: created.length, publiables, skipped, error: message } };
-    }
-
-    if (!result.ok) {
-      skipped.push(result.reason);
-      if (result.sujet) refuses.push(result.sujet);
-      // Un doublon sort ses articles spécifiques du dossier, comme une
-      // anecdote créée : sans ça, le modèle revient au même document à
-      // l'essai suivant, et le contrôle le refuse de nouveau.
-      const avant = docs.length;
-      if (result.articles?.length) {
-        const ecartes = new Set(result.articles);
-        docs = docs.filter((d) => !ecartes.has(d.title));
-      }
-      echecsAVide = docs.length < avant ? 0 : echecsAVide + 1;
-      continue;
-    }
-
-    const { redaction, verification, qualite, citations, retenus } = result;
-
-    const sources = retenus.map((doc) => ({
-      url: doc.url,
-      titre: doc.title,
-      editeur: doc.editeur,
-    }));
-
-    const { data: inserted, error } = await supabase
-      .from('anecdotes')
-      .insert({
-        city,
-        city_place_id: cityPlaceId,
-        title: redaction.titre,
-        hook: redaction.accroche,
-        body: redaction.corps,
-        period: redaction.periode || null,
-        source: sources.map((s) => `${s.editeur} — ${s.titre}`).join(' ; '),
-        source_url: sources[0].url,
-        sources,
-        confidence: verification.confiance ?? 'faible',
-        // Le verdict a sa colonne depuis que la publication peut se faire sans
-        // relecture : `valider_automatiquement` n'accepte qu'un `confirme` en
-        // confiance haute, et lire cette condition dans une phrase française
-        // de `verification_notes` reviendrait à publier au gré d'une
-        // reformulation du prompt.
-        verdict: verification.verdict,
-        verification_notes: notesDe(verification, citations),
-        // Même logique pour la rédaction et l'orthographe : des colonnes, pas
-        // une phrase. `problemes` est vide quand l'anecdote est publiable, et
-        // sinon c'est exactement ce que la correction donnera au modèle.
-        qualite_ok: qualite.ok,
-        qualite_problemes: qualite.problemes,
-        problemes: problemesDe(verification, qualite),
-        // L'axe n'apparaît que lorsqu'il n'est pas celui d'origine : les
-        // 552 lignes déjà en base gardent leur libellé exact, et une requête
-        // sur `generated_by` suffit à retrouver ce qui vient des gens.
-        generated_by: `deepseek:${DEEPSEEK_MODEL} + ${[...new Set(docs.map((d) => d.origine))].join('+')}${
-          axe === 'personnalites' ? ' (axe personnalités)' : ''
-        }`,
-        status: 'draft',
-      })
-      .select()
-      .single();
-
-    if (error) {
-      // 23505 = index unique (city_place_id, lower(title)) : déjà générée.
-      if (error.code === '23505') {
-        skipped.push(`Doublon : « ${redaction.titre} »`);
-        refuses.push(redaction.titre);
-        echecsAVide++;
-      } else {
-        console.error('Insertion échouée', error);
-        return {
-          status: 500,
-          body: { created: created.length, publiables, skipped, error: error.message },
-        };
-      }
-    } else {
-      created.push(inserted);
-      echecsAVide = 0;
-      if (estPubliable(verification, qualite)) publiables++;
-      titles.push(redaction.titre);
-      existantes.push({
-        titre: redaction.titre,
-        accroche: redaction.accroche,
-        articles: sources.map((s) => s.titre),
-      });
-      // L'article spécifique qui vient de servir sort du dossier : les
-      // suivantes du lot doivent puiser ailleurs, pas tourner autour du même
-      // monument sous un autre titre.
-      const servis = new Set(articlesSpecifiques(retenus.map((d) => d.title), city));
-      docs = docs.filter((d) => !servis.has(d.title));
-    }
+  const { data: lot, error } = await supabase
+    .from('lots_generation')
+    .insert({ mode: 'generation', city, city_place_id: cityPlaceId, axe, demandees: count })
+    .select('id, city, city_place_id, axe')
+    .single();
+  if (error) {
+    return { status: 500, body: { error: `Lot non enregistré : ${error.message}` } };
   }
+
+  let plan: BilanPlan;
+  try {
+    plan = await planifier(apiKey, supabase, lot as Lot, count, axe);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('Plan', message);
+    await supabase
+      .from('lots_generation')
+      .update({ erreur: message, duree_ms: Date.now() - debut })
+      .eq('id', lot.id);
+    return { status: 502, body: { lot: lot.id, error: message } };
+  }
+
+  const rediges = await rediger(apiKey, supabase, debut, lot.id);
+  await supabase.from('lots_generation').update({ duree_ms: Date.now() - debut }).eq('id', lot.id);
 
   return {
     status: 200,
     body: {
-      created: created.length,
-      // Créées ne veut pas dire publiables : les autres attendent le mode
-      // `corriger`.
-      publiables,
-      // Rend visible ce qui a réellement nourri le modèle : c'est ici qu'on voit
-      // si Mérimée a répondu, et avec quel volume.
-      dossier: dossierComplet.map((d) => ({
-        origine: d.origine,
-        titre: d.title,
-        url: d.url,
-        caracteres: d.extract.length,
-      })),
-      skipped,
-      anecdotes: created,
+      lot: lot.id,
+      plan,
+      // Le reste du lot est écrit par le mode `poursuivre`.
+      rediges,
     },
   };
+}
+
+/**
+ * Le passage régulier : replanifie un lot resté sous sa cible, puis écrit
+ * les sujets en attente, tous lots confondus.
+ */
+async function poursuivre(
+  apiKey: string,
+  supabase: Db
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const debut = Date.now();
+  const plans: BilanPlan[] = [];
+
+  const { data: lots, error } = await supabase.rpc('lots_a_completer', { p_limit: 1 });
+  if (error) console.error('Lots à compléter', error);
+
+  for (const l of (lots ?? []) as Array<Lot & { planifications: number; manque: number }>) {
+    // Un plan sur deux change d'axe : si les monuments n'ont pas suffi, les
+    // gens de la ville prennent le relais, et inversement.
+    const axeLot: Axe = l.axe === 'personnalites' ? 'personnalites' : 'patrimoine';
+    const axe: Axe =
+      l.planifications % 2 === 0 ? axeLot : axeLot === 'patrimoine' ? 'personnalites' : 'patrimoine';
+    try {
+      plans.push(await planifier(apiKey, supabase, l, Math.min(l.manque, MAX_COUNT), axe));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('Replanification', l.id, message);
+      await supabase.from('lots_generation').update({ erreur: message }).eq('id', l.id);
+    }
+  }
+
+  const rediges = await rediger(apiKey, supabase, debut, null);
+  return { status: 200, body: { plans, rediges } };
 }
 
 // -------------------------------------------------------------------- HTTP
@@ -1284,6 +1324,11 @@ Deno.serve(async (req) => {
     return json(reponse, status);
   }
 
+  if (body.mode === 'poursuivre') {
+    const { status, body: reponse } = await poursuivre(DEEPSEEK_API_KEY, supabase);
+    return json(reponse, status);
+  }
+
   const city = typeof body.city === 'string' ? body.city.trim() : '';
   const cityPlaceId = typeof body.cityPlaceId === 'string' ? body.cityPlaceId : null;
   const count = Math.min(Math.max(Number(body.count) || 1, 1), MAX_COUNT);
@@ -1296,6 +1341,8 @@ Deno.serve(async (req) => {
     return fail('Paramètre `city` manquant.');
   }
 
+  // Le lot tient son propre journal (`lots_generation`), mis à jour sujet
+  // par sujet : il s'écrit sur plusieurs appels.
   const { status, body: reponse } = await generer(
     DEEPSEEK_API_KEY,
     supabase,
@@ -1304,18 +1351,5 @@ Deno.serve(async (req) => {
     count,
     axe
   );
-
-  await journaliser({
-    mode: 'generation',
-    city,
-    city_place_id: cityPlaceId,
-    axe,
-    demandees: count,
-    creees: Number(reponse.created ?? 0),
-    publiables: Number(reponse.publiables ?? 0),
-    sautees: reponse.skipped ?? [],
-    erreur: (reponse.error as string) ?? null,
-  });
-
   return json(reponse, status);
 });
