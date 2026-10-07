@@ -62,6 +62,8 @@ interface Lot {
   demandees: number;
   creees: number;
   publiables: number;
+  /** Sujets choisis et sourcés, pas encore rédigés : le lot est en cours. */
+  en_attente?: number;
   erreur: string | null;
   sautees: string[];
 }
@@ -125,6 +127,17 @@ function accord(n: number, singulier: string, pluriel: string): string {
 /** Un lot est en défaut s'il a rendu moins que demandé, ou moins de publiables que de créées. */
 function enDefaut(l: Lot): boolean {
   return !!l.erreur || l.creees < l.demandees || l.publiables < l.creees;
+}
+
+/** Le symbole d'un lot : en cours tant que des sujets attendent d'être rédigés. */
+function etat(l: Lot): string {
+  if ((l.en_attente ?? 0) > 0 && !l.erreur) return '⏳';
+  return enDefaut(l) ? '⚠' : '✓';
+}
+
+function suiteLot(l: Lot): string {
+  const n = l.en_attente ?? 0;
+  return n > 0 ? `, ${n} en rédaction` : '';
 }
 
 function corps(r: Rapport, c: Controle | null): { texte: string; html: string } {
@@ -223,7 +236,7 @@ function corps(r: Rapport, c: Controle | null): { texte: string; html: string } 
     }
     for (const l of c.lots) {
       lignes.push(
-        `  ${enDefaut(l) ? '⚠' : '✓'} ${l.ville} — ${l.demandees} demandées, ${l.creees} créées, ${l.publiables} publiables d'emblée`
+        `  ${etat(l)} ${l.ville} — ${l.demandees} demandées, ${l.creees} créées, ${l.publiables} publiables d'emblée${suiteLot(l)}`
       );
     }
     lignes.push(
@@ -323,7 +336,7 @@ function corps(r: Rapport, c: Controle | null): { texte: string; html: string } 
 
   const production = c
     ? `<div style="background:#f7f7f7;border-left:3px solid ${
-        c.lots.some(enDefaut) || c.abandonnees.length > 0 ? '#b3402f' : '#3f8f4f'
+        c.lots.some((l) => etat(l) === '⚠') || c.abandonnees.length > 0 ? '#b3402f' : '#3f8f4f'
       };padding:16px 18px;margin:24px 0">
     <div style="font-size:13px;font-weight:700;color:#444;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px">Contrôle production (24 h)</div>
     ${
@@ -332,9 +345,9 @@ function corps(r: Rapport, c: Controle | null): { texte: string; html: string } 
         : c.lots
             .map(
               (l) =>
-                `<div style="font-size:15px;color:#1a1a1a;margin-bottom:4px">${enDefaut(l) ? '⚠' : '✓'} <strong>${echapper(
+                `<div style="font-size:15px;color:#1a1a1a;margin-bottom:4px">${etat(l)} <strong>${echapper(
                   l.ville
-                )}</strong> — ${l.demandees} demandées, ${l.creees} créées, ${l.publiables} publiables d'emblée</div>`
+                )}</strong> — ${l.demandees} demandées, ${l.creees} créées, ${l.publiables} publiables d'emblée${suiteLot(l)}</div>`
             )
             .join('')
     }
@@ -459,7 +472,7 @@ Deno.serve(async (req) => {
 
   // Le sujet porte l'essentiel : la plupart des matins, il suffira à lui seul.
   const alerte = rapport.stocks_bas.length > 0 ? ` · ⚠ ${rapport.stocks_bas.length} stock bas` : '';
-  const lotsEnDefaut = controleError ? 0 : ((controle as Controle).lots ?? []).filter(enDefaut).length;
+  const lotsEnDefaut = controleError ? 0 : ((controle as Controle).lots ?? []).filter((l) => etat(l) === '⚠').length;
   const defaut = lotsEnDefaut > 0 ? ` · ⚠ ${lotsEnDefaut} ${accord(lotsEnDefaut, 'lot incomplet', 'lots incomplets')}` : '';
   const sujet = `Anecto — ${rapport.lecteurs}/${rapport.profils} ${accord(
     rapport.lecteurs,

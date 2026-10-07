@@ -12,8 +12,9 @@
 //      ou de personne déjà exploité par une anecdote en vie (publiée ou en
 //      brouillon) traite le même sujet. Les articles généraux de la ville
 //      portent, eux, des dizaines de sujets : ils ne comptent pas ici.
-//   2. le thème — par le modèle (voir `DOUBLON_SYSTEM`), pour ce que le
-//      premier contrôle ne voit pas : deux articles sur le même objet
+//   2. le thème — par le modèle (voir `DOUBLONS_PLAN_SYSTEM` dans `plan.ts`,
+//      une fois pour tous les sujets d'un plan), pour ce que le premier
+//      contrôle ne voit pas : deux articles sur le même objet
 //      (« Dolmen » et « Menhir » racontant tous deux l'origine du mot), ou
 //      l'article général de la ville.
 //
@@ -72,40 +73,4 @@ export function articleDejaTraite(
     if (deja) return { article, titre: deja.titre };
   }
   return null;
-}
-
-export const DOUBLON_SYSTEM = `Tu es éditeur d'une application qui envoie chaque jour une anecdote d'histoire locale sur une ville. Un lecteur ne doit jamais recevoir deux anecdotes sur le même thème.
-
-On te donne une anecdote candidate et la liste des anecdotes déjà écrites pour la même ville. Dis si la candidate traite le même thème que l'une d'elles.
-
-Pour décider, nomme d'abord le sujet principal de la candidate : un objet précis, qu'on peut désigner par un nom propre ou une date (tel bâtiment, telle personne, tel événement, telle coutume, l'origine de tel mot). Puis cherche ce même objet dans la liste.
-
-Doublon : une anecdote existante a le même objet précis pour sujet principal, même si le titre, l'angle, l'époque mise en avant ou les détails diffèrent. La construction puis la fermeture du même hôpital, deux récits sur l'aqueduc de la ville, sur l'origine du même mot ou sur la même bataille sont des doublons.
-
-Pas un doublon : deux objets distincts, même s'ils sont de même nature. Deux malouinières différentes, deux églises, deux hôtels particuliers, une course hippique et une course de voiliers, deux incendies à des dates différentes sont des thèmes différents. Partager une catégorie, une période, un quartier, ou un lieu ou un personnage cité en passant ne fait pas un doublon.
-
-Si l'objet précis de la candidate ne figure pas comme sujet principal dans la liste, ce n'est pas un doublon.
-
-Réponds uniquement en json : {"doublon": true|false, "titre": "titre de l'anecdote existante en cas de doublon, sinon chaîne vide", "raison": "une phrase"}`;
-
-export function doublonPrompt(
-  ville: string,
-  candidate: { titre: string; accroche: string; corps: string },
-  existantes: Existante[]
-): string {
-  const liste = existantes
-    .map((e) => `- ${e.titre}${e.accroche ? ` : ${e.accroche}` : ''}`)
-    .join('\n');
-  return `VILLE : ${ville}
-
-ANECDOTES DÉJÀ ÉCRITES
-${liste}
-
-CANDIDATE
-Titre : ${candidate.titre}
-Accroche : ${candidate.accroche}
-
-${candidate.corps}
-
-La candidate traite-t-elle le même thème que l'une des anecdotes déjà écrites ? Réponds en json.`;
 }
