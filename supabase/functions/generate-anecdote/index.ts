@@ -59,6 +59,7 @@ import { articleDejaTraite, articlesSpecifiques, type Existante } from './doublo
 import {
   DOUBLONS_PLAN_SYSTEM,
   doublonsPlanPrompt,
+  dossierPlan,
   numerosDoublons,
   PLAN_SYSTEM,
   planPrompt,
@@ -1104,7 +1105,7 @@ async function planifier(
   const plan = await chatJSON<{ sujets?: unknown }>({
     apiKey,
     system: PLAN_SYSTEM,
-    user: planPrompt(lot.city, dossier(docs), Math.min(combien + 4, 14), existantes),
+    user: planPrompt(lot.city, dossierPlan(docs), Math.min(combien + 4, 14), existantes),
     temperature: 0.3,
     maxTokens: 4000,
   });
