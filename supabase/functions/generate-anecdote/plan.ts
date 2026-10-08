@@ -32,6 +32,8 @@ export const MAX_SUJETS_PAR_ARTICLE_GENERAL = 3;
 
 /** Ce que le modèle propose. */
 export interface Proposition {
+  /** Numéro du document dans le dossier (voir `dossierPlan`). */
+  document?: number;
   article: string;
   sujet: string;
   angle: string;
@@ -60,6 +62,40 @@ function simplifier(t: string): string {
 }
 
 /**
+ * Le dossier tel que le plan le lit : chaque document porte un numéro, et
+ * c'est ce numéro que le modèle rend. Le 8 octobre, invité à recopier le
+ * titre, il a recopié toute la ligne d'en-tête (« Hôtel Petipas de Walle —
+ * Wikipédia (https://…) ») et le lot de Lille est resté vide.
+ */
+export function dossierPlan(docs: Array<DocPlan & { editeur?: string }>): string {
+  return docs
+    .map((d, i) => `=== DOCUMENT ${i + 1} : ${d.title}${d.editeur ? ` (${d.editeur})` : ''} ===\n${d.extract}`)
+    .join('\n\n');
+}
+
+/**
+ * Le document que désigne une proposition : par son numéro d'abord, sinon
+ * par son titre, en tolérant ce que le modèle colle autour (éditeur, URL,
+ * « DOCUMENT 3 : »).
+ */
+export function documentDe<D extends DocPlan>(p: Partial<Proposition>, docs: D[]): D | undefined {
+  const n = Number(p.document);
+  if (Number.isInteger(n) && n >= 1 && n <= docs.length) return docs[n - 1];
+
+  const brut = simplifier(String(p.article ?? '').replace(/^\s*document\s*\d+\s*:\s*/i, ''));
+  if (!brut) return undefined;
+  const exact = docs.find((d) => simplifier(d.title) === brut);
+  if (exact) return exact;
+  // Le titre suivi d'autre chose : on garde le plus long titre qui préfixe.
+  return docs
+    .filter((d) => {
+      const t = simplifier(d.title);
+      return brut.startsWith(t) && /^[\s—–\-(:,]/.test(brut.slice(t.length));
+    })
+    .sort((a, b) => b.title.length - a.title.length)[0];
+}
+
+/**
  * Le tri déterministe des propositions. Rien n'y dépend d'un modèle : un
  * sujet dont la phrase n'est pas dans l'article désigné est un sujet inventé,
  * et on ne dépense pas une rédaction dessus.
@@ -74,7 +110,6 @@ export function trierPropositions(
 ): TriPlan {
   const retenus: SujetRetenu[] = [];
   const ecartes: string[] = [];
-  const parTitre = new Map(docs.map((d) => [simplifier(d.title), d]));
   const parArticle = new Map<string, number>();
 
   for (const brut of Array.isArray(propositions) ? propositions : []) {
@@ -85,7 +120,7 @@ export function trierPropositions(
     const faits = Array.isArray(p.faits)
       ? p.faits.map((f) => String(f).trim()).filter(Boolean).slice(0, 6)
       : [];
-    const doc = parTitre.get(simplifier(String(p.article ?? '')));
+    const doc = documentDe(p, docs);
     const nom = sujet || angle || '(sans nom)';
 
     if (!sujet || !angle) {
@@ -136,7 +171,7 @@ export const PLAN_SYSTEM = `Tu prépares le travail d'un rédacteur d'anecdotes 
 Un bon sujet est un objet précis, qu'on peut désigner par un nom propre ou une date : tel bâtiment et ce qui lui est arrivé, telle personne et un épisode daté de sa vie, tel événement, telle coutume, l'origine de tel nom. Pas une généralité (« l'histoire de la ville », « le patrimoine religieux »), pas de démographie, pas de géographie.
 
 Règles :
-- Chaque sujet repose sur UN SEUL article du dossier, dont tu recopies le titre exact (celui qui suit « === » et précède « — »).
+- Chaque sujet repose sur UN SEUL document du dossier. Donne son numéro dans "document" (le nombre qui suit « === DOCUMENT ») et son titre dans "article".
 - L'article doit contenir lui-même, sur ce sujet, au moins trois faits précis (dates, noms, chiffres) : sans eux, pas de récit possible. Liste-les dans "faits", en quelques mots chacun, tels que l'article les donne.
 - "citation" : une phrase de l'article, recopiée caractère pour caractère, qui établit le cœur du sujet. Elle est comparée automatiquement à l'article : une phrase approximative fait écarter le sujet.
 - Le sujet doit se passer dans la ville demandée ou s'y rattacher directement.
@@ -148,7 +183,8 @@ Réponds uniquement par un objet json :
 {
   "sujets": [
     {
-      "article": "titre exact de l'article",
+      "document": 3,
+      "article": "titre du document",
       "sujet": "l'objet précis, en quelques mots",
       "angle": "ce que l'anecdote raconte, en une phrase",
       "faits": ["fait daté 1", "fait daté 2", "fait daté 3"],

@@ -3,7 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { numerosDoublons, trierPropositions, type DocPlan } from './plan.ts';
+import { documentDe, dossierPlan, numerosDoublons, trierPropositions, type DocPlan } from './plan.ts';
 import type { Existante } from './doublons.ts';
 
 const remplissage = ' Le reste de la notice décrit le bâtiment et son mobilier.'.repeat(40);
@@ -112,4 +112,37 @@ test('numerosDoublons ignore les numéros hors liste', () => {
   const n = numerosDoublons({ doublons: [{ numero: 2 }, { numero: 9 }, { numero: 'x' }] }, 3);
   assert.deepEqual([...n], [2]);
   assert.equal(numerosDoublons(null, 3).size, 0);
+});
+
+test('documentDe : le numéro prime sur le titre', () => {
+  assert.equal(documentDe({ document: 2, article: 'Aqueduc du Gier' }, DOCS)?.title, 'Halle de Saint-Chamond');
+  assert.equal(documentDe({ document: 99, article: 'Aqueduc du Gier' }, DOCS)?.title, 'Aqueduc du Gier');
+});
+
+// Ce que le modèle a réellement rendu le 8 octobre pour Lille.
+test("documentDe tolère l'en-tête complet recopié par le modèle", () => {
+  const docs: DocPlan[] = [
+    { title: 'Hôtel Petipas de Walle', extract: 'x' },
+    { title: 'Centre hospitalier régional (C.H.R.)', extract: 'x' },
+    { title: 'Lille', extract: 'x' },
+  ];
+  assert.equal(
+    documentDe({ article: 'Hôtel Petipas de Walle — Wikipédia (https://fr.wikipedia.org/wiki/H%C3%B4tel_Petipas_de_Walle)' }, docs)?.title,
+    'Hôtel Petipas de Walle'
+  );
+  assert.equal(
+    documentDe(
+      { article: 'Centre hospitalier régional (C.H.R.) — Base Mérimée — ministère de la Culture (https://www.pop.culture.gouv.fr/notice/merimee/ACR0000624)' },
+      docs
+    )?.title,
+    'Centre hospitalier régional (C.H.R.)'
+  );
+  assert.equal(documentDe({ article: 'DOCUMENT 3 : Lille' }, docs)?.title, 'Lille');
+  // « Lille » ne doit pas capter « Lillebonne ».
+  assert.equal(documentDe({ article: 'Lillebonne' }, docs), undefined);
+});
+
+test('dossierPlan numérote les documents à partir de 1', () => {
+  assert.match(dossierPlan(DOCS), /^=== DOCUMENT 1 : Aqueduc du Gier ===/);
+  assert.match(dossierPlan(DOCS), /=== DOCUMENT 2 : Halle de Saint-Chamond ===/);
 });
