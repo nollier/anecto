@@ -338,18 +338,48 @@ Vérifie chaque affirmation contre le dossier — l'accroche compte autant que l
 // En dessous de ce seuil, il n'y a pas de récit à étoffer : trois phrases.
 const MIN_CHARS_A_ALLONGER = 800;
 
+// La même passe sert à resserrer. Le 8 octobre, à Lille, un récit sur Wicar
+// est parti en correction pour 432 mots (plafond 430), et un autre sur
+// l'hôtel Petipas de Walle pour 208 mots alors qu'il avait assez de
+// caractères pour échapper à l'allongement. Une passe ciblée coûte moins
+// qu'un tour de correction, qui relit et revérifie tout.
+type Sens = 'allonger' | 'resserrer';
+
+function compterMots(texte: string): number {
+  return texte.split(/\s+/).filter(Boolean).length;
+}
+
+/** Ce qu'il faut faire du corps pour qu'il entre dans le format, ou null. */
+function sensAjustement(corps: string): Sens | null {
+  if (corps.length < MIN_CHARS_A_ALLONGER) return null;
+  const mots = compterMots(corps);
+  if (corps.length < MIN_BODY_CHARS || mots < MIN_MOTS) return 'allonger';
+  if (corps.length > MAX_BODY_CHARS || mots > MAX_MOTS) return 'resserrer';
+  return null;
+}
+
 function allongementPrompt(
   city: string,
   redaction: Pick<Redaction, 'titre' | 'accroche' | 'corps' | 'periode'>,
-  docs: SourceDoc[]
+  docs: SourceDoc[],
+  sens: Sens = 'allonger'
 ): string {
-  const n = redaction.corps.trim().split(/\s+/).length;
+  const n = compterMots(redaction.corps);
+  const consigne =
+    sens === 'resserrer'
+      ? `Ce corps fait ${n} mots (${redaction.corps.length} caractères). Il en faut entre 260 et 400, jamais plus de 400, en 4 ou 5 paragraphes séparés par une ligne vide.
+Resserre-le : retire les redites et les détails secondaires, sans rien ajouter. Garde le sujet, le titre, le ton, et toutes les dates, noms et chiffres essentiels.
+Recopie au moins trois citations exactes du dossier qui établissent le récit resserré. Réponds en json.`
+      : `Ce corps fait ${n} mots (${redaction.corps.length} caractères). Il en faut entre 260 et 400, jamais plus de 400 : au moins 1 500 caractères, en 4 ou 5 paragraphes séparés par une ligne vide.
+Étoffe-le à partir du dossier : les dates exactes, les noms, les sommes, les dimensions, les circonstances que le dossier donne sur ce même sujet et que le texte n'utilise pas encore. Garde le sujet, le titre et le ton. N'ajoute rien qui ne soit dans le dossier, pas de remplissage ni de phrase générale.
+Recopie au moins trois citations exactes du dossier qui établissent le récit allongé.
+Si le dossier ne contient pas assez de matière sur ce sujet pour atteindre 260 mots sans inventer, renvoie trouve = false et explique pourquoi dans raison. Réponds en json.`;
   return `DOSSIER DOCUMENTAIRE SUR ${city.toUpperCase()}
 ${dossier(docs)}
 
 === FIN DU DOSSIER ===
 
-ANECDOTE TROP COURTE
+ANECDOTE ${sens === 'resserrer' ? 'TROP LONGUE' : 'TROP COURTE'}
 Titre : ${redaction.titre}
 Accroche : ${redaction.accroche}
 Période annoncée : ${redaction.periode}
@@ -358,27 +388,26 @@ ${redaction.corps}
 
 === FIN DE L'ANECDOTE ===
 
-Ce corps fait ${n} mots (${redaction.corps.length} caractères). Il en faut entre 260 et 400, jamais plus de 400 : au moins 1 500 caractères, en 4 ou 5 paragraphes séparés par une ligne vide.
-Étoffe-le à partir du dossier : les dates exactes, les noms, les sommes, les dimensions, les circonstances que le dossier donne sur ce même sujet et que le texte n'utilise pas encore. Garde le sujet, le titre et le ton. N'ajoute rien qui ne soit dans le dossier, pas de remplissage ni de phrase générale.
-Recopie au moins trois citations exactes du dossier qui établissent le récit allongé.
-Si le dossier ne contient pas assez de matière sur ce sujet pour atteindre 260 mots sans inventer, renvoie trouve = false et explique pourquoi dans raison. Réponds en json.`;
+${consigne}`;
 }
 
 /**
- * Une passe pour amener un corps trop court au format. Rend la rédaction
- * allongée, ou null si le modèle renonce ou rend encore un texte hors format.
+ * Une passe pour amener un corps trop court ou trop long au format. Rend la
+ * rédaction ajustée, ou null si le modèle renonce ou rend encore un texte
+ * hors format.
  */
 async function allonger(
   apiKey: string,
   axe: Axe,
   city: string,
   redaction: Redaction,
-  docs: SourceDoc[]
+  docs: SourceDoc[],
+  sens: Sens = 'allonger'
 ): Promise<Redaction | null> {
   const r = await chatJSON<Redaction>({
     apiKey,
     system: redactionSystem(axe),
-    user: allongementPrompt(city, redaction, docs),
+    user: allongementPrompt(city, redaction, docs, sens),
     temperature: 0.4,
     maxTokens: 3000,
   });
@@ -612,20 +641,17 @@ async function redigerSujet(apiKey: string, supabase: Db, s: Sujet): Promise<Bil
     if (!clean.accroche || clean.accroche.length > MAX_ACCROCHE_CHARS) {
       return echouer(`Accroche absente ou trop longue (${clean.accroche.length} caractères).`);
     }
-    if (clean.corps.length >= MIN_CHARS_A_ALLONGER && clean.corps.length < MIN_BODY_CHARS) {
-      const avant = clean.corps.length;
-      let allongee: Redaction | null = null;
+    const sens = sensAjustement(clean.corps);
+    if (sens) {
+      let ajustee: Redaction | null = null;
       try {
-        allongee = await allonger(apiKey, axe, s.city, clean, docs);
+        ajustee = await allonger(apiKey, axe, s.city, clean, docs, sens);
       } catch (err) {
-        console.error('Allongement', err);
+        console.error('Ajustement de longueur', err);
       }
-      if (!allongee) {
-        return echouer(
-          `Corps hors format : ${avant} caractères, attendu entre ${MIN_BODY_CHARS} et ${MAX_BODY_CHARS}, et l'allongement n'a pas abouti.`
-        );
-      }
-      clean = allongee;
+      // Ratée, la passe laisse le texte tel quel : hors caractères, il est
+      // écarté ci-dessous ; hors mots seulement, la correction le reprendra.
+      if (ajustee) clean = ajustee;
     }
     if (clean.corps.length < MIN_BODY_CHARS || clean.corps.length > MAX_BODY_CHARS) {
       return echouer(
@@ -907,15 +933,12 @@ async function corrigerBrouillon(
   // Même dérive qu'à la génération : la réécriture raccourcit, et le
   // contrôle de rédaction la recale pour quelques mots (« 296 mots, attendu
   // entre 300 et 430 »). Une passe d'allongement avant de conclure.
-  const motsCorps = clean.corps.split(/\s+/).filter(Boolean).length;
-  if (
-    clean.corps.length >= MIN_CHARS_A_ALLONGER &&
-    (clean.corps.length < MIN_BODY_CHARS || motsCorps < MIN_MOTS)
-  ) {
+  const sens = sensAjustement(clean.corps);
+  if (sens) {
     try {
-      clean = (await allonger(apiKey, axe, b.city, clean, docs)) ?? clean;
+      clean = (await allonger(apiKey, axe, b.city, clean, docs, sens)) ?? clean;
     } catch (err) {
-      console.error('Allongement (correction)', err);
+      console.error('Ajustement de longueur (correction)', err);
     }
   }
 
