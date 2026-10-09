@@ -26,10 +26,16 @@
 //      naissance, de décès et de personnalité liée rendent des articles aussi
 //      datés que ceux des monuments, et racontent autre chose.
 //
+//   4. Un troisième axe, `histoire`, depuis le 9 octobre : les événements,
+//      les fêtes, les institutions disparues. Lille avait 47 anecdotes et des
+//      lots qui revenaient vides, alors que la catégorie « Histoire de Lille »
+//      compte soixante articles (Fête de l'Épinette, Jeanne Maillotte, Vœu du
+//      faisan) et l'article « Histoire de Lille » six sièges datés.
+//
 // API MediaWiki : gratuite, sans clé. Elle applique en revanche une limite de
 // débit — d'où le nombre volontairement réduit de requêtes par dossier.
 
-import type { SourceDoc } from './sources.ts';
+import { melanger, type SourceDoc } from './sources.ts';
 
 const API = 'https://fr.wikipedia.org/w/api.php';
 
@@ -49,7 +55,25 @@ const TIMEOUT_MS = 15000;
  * change de comportement. `personnalites` sert à sortir une ville de l'ornière
  * quand son corpus ne parle plus que de pierres.
  */
-export type Axe = 'patrimoine' | 'personnalites';
+export type Axe = 'patrimoine' | 'personnalites' | 'histoire';
+
+/** L'ordre dans lequel un lot tourne d'un axe à l'autre. */
+export const AXES: Axe[] = ['patrimoine', 'personnalites', 'histoire'];
+
+/** Lit un axe venu de la base ou d'une requête. Inconnu : `patrimoine`. */
+export function lireAxe(valeur: unknown): Axe {
+  return AXES.includes(valeur as Axe) ? (valeur as Axe) : 'patrimoine';
+}
+
+/**
+ * Les axes à essayer, à partir de `premier`, dans l'ordre de rotation. Un axe
+ * sans source neuve cède sa place au suivant dans le même plan, au lieu de
+ * coûter l'un des trois plans du lot.
+ */
+export function ordreAxes(premier: Axe): Axe[] {
+  const i = AXES.indexOf(premier);
+  return [...AXES.slice(i), ...AXES.slice(0, i)];
+}
 
 // Repli quand la commune n'a ni catégorie ni liste de monuments : on filtre
 // alors les liens de la page ville, comme avant.
@@ -156,11 +180,13 @@ async function trouverMonuments(cityTitle: string): Promise<string[]> {
     liens(cityTitle),
   ]);
 
+  // Mélangés rang par rang, comme les personnalités : sans cela, le dossier
+  // prenait toujours les sept premiers de la catégorie, par ordre alphabétique,
+  // et un article qui n'avait rien donné revenait au plan suivant.
   const candidats = [
-    ...categorieA,
-    ...categorieDe,
-    ...listeMH.filter((t) => PATRIMOINE.test(t)),
-    ...liensVille.filter((t) => PATRIMOINE.test(t)),
+    ...melanger([...categorieA, ...categorieDe]),
+    ...melanger(listeMH.filter((t) => PATRIMOINE.test(t))),
+    ...melanger(liensVille.filter((t) => PATRIMOINE.test(t))),
   ];
 
   // Les pages de liste ne racontent rien : elles énumèrent.
@@ -169,14 +195,6 @@ async function trouverMonuments(cityTitle: string): Promise<string[]> {
   return [...new Set(utiles)];
 }
 
-/** Mélange une liste sur place, puis la rend. Fisher-Yates. */
-function melanger<T>(liste: T[]): T[] {
-  for (let i = liste.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [liste[i], liste[j]] = [liste[j], liste[i]];
-  }
-  return liste;
-}
 
 /**
  * Les personnalités candidates, de la plus sûre à la moins sûre.
@@ -213,6 +231,49 @@ async function trouverPersonnalites(cityTitle: string): Promise<string[]> {
   // qui portent leur nom, et on les traite déjà par l'autre axe.
   const utiles = candidats.filter(
     (t) => !/^(liste|catégorie)\b/i.test(t) && !PATRIMOINE.test(t)
+  );
+
+  return [...new Set(utiles)];
+}
+
+// Ce qui, dans les liens d'un article d'histoire, porte le nom de la ville
+// sans raconter d'histoire : découpages administratifs, transports, médias,
+// clubs, démographie.
+const HORS_HISTOIRE =
+  /^(liste|catégorie|chronologie|canton|arrondissement|aire|unité urbaine|métropole|communauté|académie|diocèse|circonscription|démographie|quartiers? de|aéroport|gare|ligne|tramway|métro|autobus|boulevard périphérique|autoroute|université|lycée|école|stade|zénith|asptt|lille métropole|bfm|radio|télé|journal|club|équipe|association sportive|olympique)\b/i;
+
+/**
+ * Les articles d'histoire candidats : événements, fêtes, institutions,
+ * épisodes.
+ *
+ * Les membres de « Catégorie:Histoire de X » et de quelques sous-catégories
+ * attendues viennent en premier : ils parlent de la ville par construction.
+ * Puis les liens des articles « Histoire de X » et « X » dont le titre nomme
+ * la ville (« Siège de Lille (1667) », « Braderie de Lille ») — un lien vers
+ * « Louis XIV » ou « Flandre » ne dit rien de la ville, et un titre qui la
+ * nomme est le filtre le plus sûr qu'on ait sans lire l'article.
+ */
+async function trouverHistoire(cityTitle: string): Promise<string[]> {
+  const nom = cityTitle.replace(/\s*\(.*\)$/, '').toLowerCase();
+  const [histoire, sieges, fetes, detruits, militaire, liensHistoire, liensVille] = await Promise.all([
+    membresCategorie(`Catégorie:Histoire de ${cityTitle}`),
+    membresCategorie(`Catégorie:Siège de ${cityTitle}`),
+    membresCategorie(`Catégorie:Fête à ${cityTitle}`),
+    membresCategorie(`Catégorie:Bâtiment détruit à ${cityTitle}`),
+    membresCategorie(`Catégorie:Vie militaire à ${cityTitle}`),
+    liens(`Histoire de ${cityTitle}`),
+    liens(cityTitle),
+  ]);
+
+  const nommeLaVille = (t: string) => t.toLowerCase().includes(nom);
+  const candidats = [
+    ...melanger([...histoire, ...sieges, ...fetes, ...detruits, ...militaire]),
+    ...melanger([...liensHistoire, ...liensVille].filter(nommeLaVille)),
+  ];
+
+  const generaux = new Set([cityTitle, `Histoire de ${cityTitle}`].map((t) => t.toLowerCase()));
+  const utiles = candidats.filter(
+    (t) => !HORS_HISTOIRE.test(t) && !generaux.has(t.toLowerCase()) && !/^(rue|place|boulevard|avenue|quai)\b/i.test(t)
   );
 
   return [...new Set(utiles)];
@@ -266,24 +327,32 @@ export async function fetchExtract(title: string): Promise<SourceDoc | null> {
  * @param axe     le gisement dans lequel puiser. Défaut `patrimoine`, qui est
  *                le comportement d'origine.
  * @param titreImpose article de la commune, quand son nom seul est ambigu.
+ * @param steriles articles lus récemment sans qu'aucun sujet n'en sorte.
+ *                Contrairement à `exclure`, ils sont écartés même quand il
+ *                ne reste que l'article de la ville et son histoire : relire
+ *                un article qui vient de ne rien donner ne donnera rien.
  */
 export async function fetchWikipediaDocs(
   city: string,
   exclure: string[] = [],
   axe: Axe = 'patrimoine',
-  titreImpose?: string
+  titreImpose?: string,
+  steriles: string[] = []
 ): Promise<SourceDoc[]> {
   const cityTitle = titreImpose ?? (await findCityTitle(city));
   if (!cityTitle) return [];
 
-  const dejaVus = new Set(exclure.map((t) => t.toLowerCase()));
+  const sansSuite = new Set(steriles.map((t) => t.toLowerCase()));
+  const dejaVus = new Set([...exclure, ...steriles].map((t) => t.toLowerCase()));
 
   let sujets: string[] = [];
   try {
     sujets =
       axe === 'personnalites'
         ? await trouverPersonnalites(cityTitle)
-        : await trouverMonuments(cityTitle);
+        : axe === 'histoire'
+          ? await trouverHistoire(cityTitle)
+          : await trouverMonuments(cityTitle);
   } catch (err) {
     console.error(`Wikipédia ${axe}`, err);
   }
@@ -299,11 +368,16 @@ export async function fetchWikipediaDocs(
   // l'axe sert à échapper. Un dossier vide est alors la bonne réponse : il
   // remonte en clair dans `skipped`, plutôt que de rendre une trente-et-unième
   // façade sous couvert de sujet neuf.
+  //
+  // Sur l'axe histoire, « Histoire de X » est le premier document, pas un
+  // repli : c'est là que les épisodes sont racontés.
   const contexte =
     axe === 'personnalites'
       ? []
-      : [cityTitle, `Histoire de ${cityTitle}`].filter(
-          (t) => neufs.length === 0 || !dejaVus.has(t.toLowerCase())
+      : (axe === 'histoire' ? [`Histoire de ${cityTitle}`] : [cityTitle, `Histoire de ${cityTitle}`]).filter(
+          (t) =>
+            !sansSuite.has(t.toLowerCase()) &&
+            (axe === 'histoire' || neufs.length === 0 || !dejaVus.has(t.toLowerCase()))
         );
 
   // Deux fois plus de candidats sur l'axe des personnalités : `fetchExtract`

@@ -3,7 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { controlerRedaction, horsCitations } from './qualite.ts';
+import { controlerRedaction, horsCitations, neutraliserAffects } from './qualite.ts';
 
 /** Un paragraphe de 80 mots, sans rien de ce que les règles interdisent. */
 const PARAGRAPHE = Array.from({ length: 16 }, (_, i) => `Le môle numéro ${i} reçoit`).join(' ') + '.';
@@ -59,4 +59,21 @@ test('ne confond pas « nous » avec un mot qui le contient', () => {
   assert.equal(horsCitations('« a » b'), '  b');
   const corps = BON.corps.replace('Le môle numéro 3', 'Les noues du toit et le môle');
   assert.equal(controlerRedaction({ ...BON, corps }).ok, true);
+});
+
+test('remplace remarquable et exceptionnel, en gardant l’accord et la majuscule', () => {
+  assert.equal(
+    neutraliserAffects('Un résumé des styles les plus remarquables de la ville. Exceptionnelle, la crue de 1910.'),
+    'Un résumé des styles les plus notables de la ville. Hors norme, la crue de 1910.'
+  );
+});
+
+test('ne touche ni aux citations ni aux labels officiels', () => {
+  const texte = 'Le parc, classé Jardin remarquable en 2004, est dit « exceptionnel » par le préfet.';
+  assert.equal(neutraliserAffects(texte), texte);
+});
+
+test('un label officiel n’est pas un adjectif d’affect', () => {
+  const corps = BON.corps.replace('Le môle numéro 0', 'Le site patrimonial remarquable numéro 0');
+  assert.deepEqual(controlerRedaction({ ...BON, corps }).problemes, []);
 });

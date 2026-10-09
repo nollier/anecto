@@ -164,6 +164,20 @@ export function trierPropositions(
   return { retenus, ecartes };
 }
 
+/**
+ * Les documents du dossier dont aucun sujet n'a été retenu, ni par le tri ni
+ * par le contrôle des doublons.
+ *
+ * Le 8 octobre, trois plans de Lille sur trois ont relu la notice du CHR et
+ * celle de l'hôpital Sainte-Eugénie, et trois fois leur sujet a été écarté
+ * comme déjà traité : rien ne gardait la trace qu'un document lu ne donnait
+ * rien. Ceux-là sortent des dossiers pour un temps (voir `sources_steriles`).
+ */
+export function documentsSteriles(docs: DocPlan[], retenus: Array<Pick<SujetRetenu, 'article'>>): string[] {
+  const portes = new Set(retenus.map((r) => simplifier(r.article)));
+  return docs.map((d) => d.title).filter((t) => !portes.has(simplifier(t)));
+}
+
 // ------------------------------------------------------------------ prompts
 
 export const PLAN_SYSTEM = `Tu prépares le travail d'un rédacteur d'anecdotes d'histoire locale. On te donne un dossier documentaire sur une ville, fait de plusieurs articles. Tu ne rédiges rien : tu repères dans le dossier des sujets d'anecdote distincts, chacun assez documenté pour un récit de 250 à 400 mots.
