@@ -3,7 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { documentDe, dossierPlan, numerosDoublons, trierPropositions, type DocPlan } from './plan.ts';
+import { documentDe, documentsSteriles, dossierPlan, numerosDoublons, trierPropositions, type DocPlan } from './plan.ts';
 import type { Existante } from './doublons.ts';
 
 const remplissage = ' Le reste de la notice décrit le bâtiment et son mobilier.'.repeat(40);
@@ -145,4 +145,15 @@ test("documentDe tolère l'en-tête complet recopié par le modèle", () => {
 test('dossierPlan numérote les documents à partir de 1', () => {
   assert.match(dossierPlan(DOCS), /^=== DOCUMENT 1 : Aqueduc du Gier ===/);
   assert.match(dossierPlan(DOCS), /=== DOCUMENT 2 : Halle de Saint-Chamond ===/);
+});
+
+test('un document dont aucun sujet n’est retenu est stérile', () => {
+  const docs = [
+    { title: 'Centre hospitalier régional (C.H.R.)', extract: '' },
+    { title: 'Jardin des plantes de Lille', extract: '' },
+  ];
+  assert.deepEqual(documentsSteriles(docs, [{ article: 'Jardin des plantes de Lille' }]), [
+    'Centre hospitalier régional (C.H.R.)',
+  ]);
+  assert.deepEqual(documentsSteriles(docs, []), docs.map((d) => d.title));
 });

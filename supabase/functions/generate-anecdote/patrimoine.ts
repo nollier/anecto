@@ -21,7 +21,8 @@
 // modifications de la notice (noms et courriels des agents), pas un texte
 // d'histoire. Il ne doit jamais entrer dans un dossier.
 
-import { type SourceDoc, toPlainText } from './sources.ts';
+import { MIN_CHARS_ARTICLE_SUJET } from './plan.ts';
+import { melanger, type SourceDoc, toPlainText } from './sources.ts';
 
 const ENDPOINT = 'https://api.pop.culture.gouv.fr/search/simple';
 const NOTICE_URL = 'https://www.pop.culture.gouv.fr/notice/merimee/';
@@ -84,8 +85,15 @@ function departements(source: Source): string[] {
 }
 
 /**
- * Les notices exploitables pour cette commune, de la plus riche à la moins
- * riche. Fonction pure : elle se teste sous Node.
+ * Les notices exploitables pour cette commune. Fonction pure : elle se teste
+ * sous Node.
+ *
+ * Jusqu'au 9 octobre, on gardait les huit plus longues : toujours les mêmes.
+ * À Lille, la notice du CHR revenait à chaque plan, et à chaque plan son
+ * sujet était écarté comme doublon de « La cité hospitalière en étoile »,
+ * sourcée sur une autre notice du même hôpital. Désormais on tire au hasard,
+ * d'abord parmi les notices assez longues pour porter un récit (le plan
+ * écarte les autres), puis parmi le reste.
  *
  * Rend une liste vide quand la commune est ambiguë. `facets[COM]` filtre sur
  * le nom seul, et Saint-Paul existe dans une dizaine de départements : mieux
@@ -95,7 +103,8 @@ function departements(source: Source): string[] {
 export function selectionnerNotices(
   sources: Source[],
   city: string,
-  exclure: string[] = []
+  exclure: string[] = [],
+  { max = MAX_NOTICES, hasard = Math.random }: { max?: number; hasard?: () => number } = {}
 ): SourceDoc[] {
   const ville = simplifier(city);
   const deLaVille = sources.filter((s) => communes(s).some((c) => simplifier(c) === ville));
@@ -132,14 +141,24 @@ export function selectionnerNotices(
     });
   }
 
-  return docs.sort((a, b) => b.extract.length - a.extract.length).slice(0, MAX_NOTICES);
+  const portent = (d: SourceDoc) => d.extract.length >= MIN_CHARS_ARTICLE_SUJET;
+  return [...melanger(docs.filter(portent), hasard), ...melanger(docs.filter((d) => !portent(d)), hasard)].slice(
+    0,
+    max
+  );
 }
 
 /**
  * @param exclure titres de notices déjà exploitées : comme pour Wikipédia,
  *                c'est ce qui fait tourner le dossier d'un lot à l'autre.
+ * @param max     nombre de notices rendues. La correction relit une notice
+ *                précise par son titre : elle demande tout.
  */
-export async function fetchPatrimoineDocs(city: string, exclure: string[] = []): Promise<SourceDoc[]> {
+export async function fetchPatrimoineDocs(
+  city: string,
+  exclure: string[] = [],
+  max = MAX_NOTICES
+): Promise<SourceDoc[]> {
   const params = new URLSearchParams();
   params.append('bases[]', 'merimee');
   params.append('facets[COM][]', city);
@@ -170,5 +189,5 @@ export async function fetchPatrimoineDocs(city: string, exclure: string[] = []):
     .map((hit) => hit?._source)
     .filter((s): s is Source => !!s && typeof s === 'object');
 
-  return selectionnerNotices(sources, city, exclure);
+  return selectionnerNotices(sources, city, exclure, { max });
 }

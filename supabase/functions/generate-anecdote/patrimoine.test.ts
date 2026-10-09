@@ -20,11 +20,12 @@ function notice(ref: string, tico: string, com: string, insee: string, hist = LO
   };
 }
 
-test('garde les notices de la commune, les plus riches d’abord', () => {
+test('garde les notices de la commune, celles qui portent un récit d’abord', () => {
+  const RECIT = LONG.repeat(3); // 1 680 caractères, assez pour un sujet
   const docs = selectionnerNotices(
     [
       notice('PA1', 'Chapelle', 'Bénodet', '29006', LONG),
-      notice('PA2', 'Villa le Minaret', 'Bénodet', '29006', LONG + LONG),
+      notice('PA2', 'Villa le Minaret', 'Bénodet', '29006', RECIT),
       notice('PA3', 'Menhir', 'Bénodet', '29006', 'Trop court.'),
     ],
     'Bénodet'
@@ -35,6 +36,19 @@ test('garde les notices de la commune, les plus riches d’abord', () => {
   );
   assert.equal(docs[0].url, 'https://www.pop.culture.gouv.fr/notice/merimee/PA2');
   assert.equal(docs[0].origine, 'merimee');
+});
+
+test('tire les notices au hasard : le dossier tourne d’un plan à l’autre', () => {
+  const sources = Array.from({ length: 20 }, (_, i) => notice(`PA${i}`, `Hôtel ${i}`, 'Lille', '59350'));
+  const premier = selectionnerNotices(sources, 'Lille', [], { hasard: () => 0.99 }).map((d) => d.title);
+  const second = selectionnerNotices(sources, 'Lille', [], { hasard: () => 0 }).map((d) => d.title);
+  assert.equal(premier.length, 8);
+  assert.notDeepEqual(premier, second);
+});
+
+test('rend toutes les notices quand on les demande toutes', () => {
+  const sources = Array.from({ length: 20 }, (_, i) => notice(`PA${i}`, `Hôtel ${i}`, 'Lille', '59350'));
+  assert.equal(selectionnerNotices(sources, 'Lille', [], { max: Infinity }).length, 20);
 });
 
 test('n’inclut jamais le journal HISTORIQUE', () => {

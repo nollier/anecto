@@ -39,7 +39,7 @@
 // cible est replanifié pour ce qui manque, trois fois au plus.
 //
 // Le corps de la requête accepte `axe` : `patrimoine` (défaut, le
-// comportement d'origine) ou `personnalites`. Il choisit le gisement
+// comportement d'origine), `personnalites` ou `histoire`. Il choisit le gisement
 // Wikipédia du dossier, et avec lui ce dont l'anecdote parlera. Une ville
 // dont les trente anecdotes décrivent toutes une façade se relance sur
 // l'autre axe sans que rien d'autre ne bouge.
@@ -50,11 +50,11 @@
 
 import { createClient } from 'npm:@supabase/supabase-js@^2';
 import { chatJSON, DEEPSEEK_MODEL } from './deepseek.ts';
-import { type Axe, fetchExtract, fetchWikipediaDocs } from './wikipedia.ts';
+import { type Axe, fetchExtract, fetchWikipediaDocs, lireAxe, ordreAxes } from './wikipedia.ts';
 import { fetchPatrimoineDocs } from './patrimoine.ts';
 import type { SourceDoc } from './sources.ts';
 import { controler, normalize } from './verification.ts';
-import { controlerRedaction, MAX_MOTS, MIN_MOTS, type Qualite } from './qualite.ts';
+import { controlerRedaction, MAX_MOTS, MIN_MOTS, neutraliserAffects, type Qualite } from './qualite.ts';
 import { articleDejaTraite, articlesSpecifiques, type Existante } from './doublons.ts';
 import {
   DOUBLONS_PLAN_SYSTEM,
@@ -63,6 +63,7 @@ import {
   numerosDoublons,
   PLAN_SYSTEM,
   planPrompt,
+  documentsSteriles,
   type SujetRetenu,
   sujetImpose,
   trierPropositions,
@@ -139,14 +140,15 @@ async function buildDossier(
   city: string,
   exclure: string[],
   axe: Axe,
-  cityPlaceId: string | null = null
+  cityPlaceId: string | null = null,
+  steriles: string[] = []
 ): Promise<SourceDoc[]> {
-  // Mérimée ne décrit que des immeubles protégés : sur l'axe des
-  // personnalités, ses notices n'apportent rien et occupent 12 000 caractères
-  // du dossier. On ne l'interroge pas, et on économise l'appel.
+  // Mérimée ne décrit que des immeubles protégés : hors de l'axe patrimoine,
+  // ses notices n'apportent rien et occupent 12 000 caractères du dossier. On
+  // ne l'interroge pas, et on économise l'appel.
   const [wiki, merimee] = await Promise.allSettled([
-    fetchWikipediaDocs(city, exclure, axe, cityPlaceId ? TITRES_WIKIPEDIA[cityPlaceId] : undefined),
-    axe === 'personnalites' ? Promise.resolve([]) : fetchPatrimoineDocs(city, exclure),
+    fetchWikipediaDocs(city, exclure, axe, cityPlaceId ? TITRES_WIKIPEDIA[cityPlaceId] : undefined, steriles),
+    axe === 'patrimoine' ? fetchPatrimoineDocs(city, [...exclure, ...steriles]) : Promise.resolve([]),
   ]);
 
   if (wiki.status === 'rejected') console.error('Wikipédia', wiki.reason);
@@ -169,6 +171,8 @@ async function buildDossier(
 // pêchait « un usage oublié d'un bâtiment », et allait le chercher dans la
 // seule phrase de l'article qui mentionnait une adresse.
 const SUJETS: Record<Axe, string> = {
+  histoire:
+    "Le dossier porte sur l'histoire de la ville : événements, sièges, incendies, épidémies, fêtes et processions, institutions disparues, métiers et industries. Ce qui fait un bon sujet : un épisode daté, avec ses acteurs et ses chiffres, une coutume et son origine, une institution et ce qu'elle a laissé. Pas de résumé de plusieurs siècles, pas de chronologie, pas de généralité géographique, pas de guide touristique, pas de démographie.\n\nL'épisode doit se passer dans la ville demandée. Un article du dossier peut parler surtout d'une région ou d'un pays : n'en retiens que ce qui se passe dans la ville, et si rien ne s'y passe, renvoie trouve = false.",
   patrimoine:
     "Ce qui fait un bon sujet : une coutume disparue, un épisode historique daté, l'origine d'un toponyme, un usage oublié d'un bâtiment, une prouesse technique, un objet qui a survécu. Pas de généralité géographique, pas de guide touristique, pas de démographie.",
   personnalites:
@@ -393,8 +397,8 @@ ${consigne}`;
 
 /**
  * Une passe pour amener un corps trop court ou trop long au format. Rend la
- * rédaction ajustée, ou null si le modèle renonce ou rend encore un texte
- * hors format.
+ * rédaction ajustée, même encore hors format (`ajuster` juge si elle s'en
+ * rapproche), ou null si le modèle renonce.
  */
 async function allonger(
   apiKey: string,
@@ -413,11 +417,7 @@ async function allonger(
   });
   if (!r?.trouve) return null;
   const corps = String(r.corps ?? '').trim();
-  if (corps.length < MIN_BODY_CHARS || corps.length > MAX_BODY_CHARS) return null;
-  // Le 2 octobre, la première version de cette passe a rendu 520 à 590 mots :
-  // dans les caractères, hors du compte de mots que `qualite.ts` exige.
-  const mots = corps.split(/\s+/).length;
-  if (mots < MIN_MOTS || mots > MAX_MOTS) return null;
+  if (!corps) return null;
   return {
     ...r,
     titre: String(r.titre ?? '').trim() || redaction.titre,
@@ -425,6 +425,56 @@ async function allonger(
     corps,
     periode: String(r.periode ?? '').trim() || redaction.periode,
   };
+}
+
+/**
+ * De combien un corps sort du format, en mots (les caractères comptés à six
+ * par mot). Zéro : il y est.
+ */
+function ecartFormat(corps: string): number {
+  const mots = compterMots(corps);
+  const horsMots = Math.max(0, MIN_MOTS - mots, mots - MAX_MOTS);
+  const horsChars = Math.max(0, MIN_BODY_CHARS - corps.length, corps.length - MAX_BODY_CHARS);
+  return horsMots + horsChars / 6;
+}
+
+// Deux passes au plus. Une seule ne suffisait pas : le 9 octobre, des
+// brouillons attendaient encore en correction à 434, 454, 499 et 530 mots,
+// et le 8, deux anecdotes ont été rejetées à 458 et 464 mots. Le modèle
+// resserre, mais pas assez d'un coup ; on repart de sa version plus courte.
+const PASSES_AJUSTEMENT = 2;
+
+/**
+ * Amène le corps au format en une ou deux passes. Chaque passe ne remplace
+ * le texte que si elle le rapproche du format : une passe qui rallonge un
+ * texte trop long, ou qui renonce, laisse la version précédente.
+ */
+async function ajuster(
+  apiKey: string,
+  axe: Axe,
+  city: string,
+  redaction: Redaction,
+  docs: SourceDoc[]
+): Promise<Redaction> {
+  let meilleure = redaction;
+  for (let passe = 0; passe < PASSES_AJUSTEMENT; passe++) {
+    const sens = sensAjustement(meilleure.corps);
+    if (!sens) break;
+    let candidate: Redaction | null = null;
+    try {
+      candidate = await allonger(apiKey, axe, city, meilleure, docs, sens);
+    } catch (err) {
+      console.error('Ajustement de longueur', err);
+    }
+    if (!candidate || ecartFormat(candidate.corps) >= ecartFormat(meilleure.corps)) break;
+    meilleure = candidate;
+  }
+  return meilleure;
+}
+
+/** L'accroche et le corps sans les adjectifs d'affect qu'on sait remplacer. */
+function neutraliser(r: Redaction): Redaction {
+  return { ...r, accroche: neutraliserAffects(r.accroche), corps: neutraliserAffects(r.corps) };
 }
 
 // ------------------------------------------------------------- génération
@@ -592,8 +642,23 @@ async function lireExistant(
   return { existantes, articlesExploites: [...new Set(articles)] };
 }
 
+// Le libellé que `generated_by` porte pour chaque axe, et que le mode
+// `corriger` relit pour réécrire avec le bon prompt.
+const LIBELLES_AXE: Record<Axe, string> = {
+  patrimoine: '',
+  personnalites: ' (axe personnalités)',
+  histoire: ' (axe histoire)',
+};
+
+function axeDeLibelle(generatedBy: string | null): Axe {
+  const g = generatedBy ?? '';
+  if (g.includes(LIBELLES_AXE.personnalites)) return 'personnalites';
+  if (g.includes(LIBELLES_AXE.histoire)) return 'histoire';
+  return 'patrimoine';
+}
+
 async function redigerSujet(apiKey: string, supabase: Db, s: Sujet): Promise<BilanSujet> {
-  const axe: Axe = s.axe === 'personnalites' ? 'personnalites' : 'patrimoine';
+  const axe = lireAxe(s.axe);
   const doc: SourceDoc = {
     origine: s.origine,
     title: s.article,
@@ -641,18 +706,9 @@ async function redigerSujet(apiKey: string, supabase: Db, s: Sujet): Promise<Bil
     if (!clean.accroche || clean.accroche.length > MAX_ACCROCHE_CHARS) {
       return echouer(`Accroche absente ou trop longue (${clean.accroche.length} caractères).`);
     }
-    const sens = sensAjustement(clean.corps);
-    if (sens) {
-      let ajustee: Redaction | null = null;
-      try {
-        ajustee = await allonger(apiKey, axe, s.city, clean, docs, sens);
-      } catch (err) {
-        console.error('Ajustement de longueur', err);
-      }
-      // Ratée, la passe laisse le texte tel quel : hors caractères, il est
-      // écarté ci-dessous ; hors mots seulement, la correction le reprendra.
-      if (ajustee) clean = ajustee;
-    }
+    // Ratées, les passes laissent le texte tel quel : hors caractères, il
+    // est écarté ci-dessous ; hors mots seulement, la correction le reprendra.
+    clean = neutraliser(await ajuster(apiKey, axe, s.city, clean, docs));
     if (clean.corps.length < MIN_BODY_CHARS || clean.corps.length > MAX_BODY_CHARS) {
       return echouer(
         `Corps hors format : ${clean.corps.length} caractères, attendu entre ${MIN_BODY_CHARS} et ${MAX_BODY_CHARS}.`
@@ -694,9 +750,7 @@ async function redigerSujet(apiKey: string, supabase: Db, s: Sujet): Promise<Bil
         problemes: problemesDe(verification, qualite),
         // L'axe n'apparaît que lorsqu'il n'est pas celui d'origine : le mode
         // `corriger` le relit dans ce libellé.
-        generated_by: `deepseek:${DEEPSEEK_MODEL} + ${doc.origine}${
-          axe === 'personnalites' ? ' (axe personnalités)' : ''
-        }`,
+        generated_by: `deepseek:${DEEPSEEK_MODEL} + ${doc.origine}${LIBELLES_AXE[axe]}`,
         status: 'draft',
       })
       .select('id')
@@ -784,18 +838,41 @@ interface Brouillon {
 }
 
 /**
- * Le dossier d'un brouillon déjà en base : les documents qu'il crédite,
- * relus à la source. Plus étroit que le dossier d'origine — c'est voulu :
- * une correction ne doit s'appuyer que sur ce que l'anecdote cite.
+ * Le dossier d'un brouillon déjà en base : les documents qu'il crédite.
+ * Plus étroit que le dossier d'origine — c'est voulu : une correction ne
+ * doit s'appuyer que sur ce que l'anecdote cite.
+ *
+ * D'abord le texte gardé avec son sujet dans `sujets_anecdote` : c'est celui
+ * que la rédaction a lu, mot pour mot. Le 8 octobre, deux brouillons de
+ * Strasbourg ont été rejetés pour « sources introuvables » parce que leur
+ * notice Mérimée n'était pas parmi les huit que la relecture rapportait.
  */
-async function dossierDe(b: Brouillon): Promise<SourceDoc[]> {
+async function dossierDe(supabase: Db, b: Brouillon): Promise<SourceDoc[]> {
+  const { data: gardes } = await supabase
+    .from('sujets_anecdote')
+    .select('article, url, editeur, origine, extrait')
+    .eq('anecdote_id', b.id)
+    .limit(1);
+  const garde = gardes?.[0];
+  if (garde?.extrait) {
+    return [
+      {
+        origine: garde.origine,
+        title: garde.article,
+        url: garde.url,
+        editeur: garde.editeur,
+        extract: garde.extrait,
+      },
+    ];
+  }
+
   const sources = b.sources ?? [];
   const wiki = sources.filter((s) => s.editeur === 'Wikipédia' && s.titre);
   const merimee = sources.filter((s) => s.editeur !== 'Wikipédia' && s.titre);
 
   const [wikiDocs, merimeeDocs] = await Promise.all([
     Promise.allSettled(wiki.map((s) => fetchExtract(s.titre!))),
-    merimee.length > 0 ? fetchPatrimoineDocs(b.city) : Promise.resolve([]),
+    merimee.length > 0 ? fetchPatrimoineDocs(b.city, [], Infinity) : Promise.resolve([]),
   ]);
 
   const docs: SourceDoc[] = [];
@@ -803,8 +880,11 @@ async function dossierDe(b: Brouillon): Promise<SourceDoc[]> {
     if (r.status === 'fulfilled' && r.value) docs.push(r.value);
     else if (r.status === 'rejected') console.error('Wikipédia (correction)', r.reason);
   }
-  const titresMerimee = new Set(merimee.map((s) => s.titre));
-  docs.push(...merimeeDocs.filter((d) => titresMerimee.has(d.title)));
+  // Par l'URL, qui porte la référence de la notice : à Strasbourg, plusieurs
+  // notices s'intitulent « Immeuble, puis foyer de jeunes ».
+  const urlsMerimee = new Set(merimee.map((s) => s.url).filter(Boolean));
+  const titresMerimee = new Set(merimee.filter((s) => !s.url).map((s) => s.titre));
+  docs.push(...merimeeDocs.filter((d) => urlsMerimee.has(d.url) || titresMerimee.has(d.title)));
   return docs;
 }
 
@@ -823,7 +903,7 @@ async function corrigerBrouillon(
   supabase: Db,
   b: Brouillon
 ): Promise<BilanCorrection> {
-  const axe: Axe = (b.generated_by ?? '').includes('personnalités') ? 'personnalites' : 'patrimoine';
+  const axe = axeDeLibelle(b.generated_by);
   const tentative = b.corrections + 1;
   const avant = {
     titre: b.title,
@@ -871,7 +951,7 @@ async function corrigerBrouillon(
     return { id: b.id, ville: b.city, titre: b.title, issue, motif };
   };
 
-  const docs = await dossierDe(b);
+  const docs = await dossierDe(supabase, b);
   if (docs.length === 0) {
     return echouer('Sources introuvables : aucun des documents crédités ne se relit.');
   }
@@ -933,14 +1013,7 @@ async function corrigerBrouillon(
   // Même dérive qu'à la génération : la réécriture raccourcit, et le
   // contrôle de rédaction la recale pour quelques mots (« 296 mots, attendu
   // entre 300 et 430 »). Une passe d'allongement avant de conclure.
-  const sens = sensAjustement(clean.corps);
-  if (sens) {
-    try {
-      clean = (await allonger(apiKey, axe, b.city, clean, docs, sens)) ?? clean;
-    } catch (err) {
-      console.error('Ajustement de longueur (correction)', err);
-    }
-  }
+  clean = neutraliser(await ajuster(apiKey, axe, b.city, clean, docs));
 
   if (clean.corps.length < MIN_BODY_CHARS || clean.corps.length > MAX_BODY_CHARS) {
     return echouer(`Corps réécrit hors format : ${clean.corps.length} caractères.`);
@@ -1088,6 +1161,27 @@ interface Lot {
   axe: string;
 }
 
+// Combien de temps un document lu sans résultat reste hors des dossiers. Un
+// mois : assez pour que le plan explore le reste du gisement, pas au point
+// d'oublier qu'un article a pu s'enrichir sur Wikipédia depuis.
+const JOURS_STERILITE = 30;
+
+/** Les documents lus récemment pour cette ville sans qu'aucun sujet n'en sorte. */
+async function lireSteriles(supabase: Db, city: string, cityPlaceId: string | null): Promise<string[]> {
+  const depuis = new Date(Date.now() - JOURS_STERILITE * 86_400_000).toISOString();
+  const requete = supabase.from('sources_steriles').select('article').gte('created_at', depuis).limit(1000);
+  const { data, error } = cityPlaceId
+    ? await requete.eq('city_place_id', cityPlaceId)
+    : await requete.eq('city', city);
+  // Sans la liste, le dossier relit peut-être un article stérile : c'est le
+  // comportement d'avant, pas une raison d'arrêter le lot.
+  if (error) {
+    console.error('Sources stériles illisibles', error);
+    return [];
+  }
+  return [...new Set((data ?? []).map((r) => r.article as string))];
+}
+
 interface BilanPlan {
   ville: string;
   axe: Axe;
@@ -1112,16 +1206,28 @@ async function planifier(
   await supabase.rpc('actualiser_lot', { p_lot: lot.id, p_planification: true });
 
   const { existantes, articlesExploites } = await lireExistant(supabase, lot.city, lot.city_place_id, true);
-  const docs = await buildDossier(lot.city, articlesExploites, axe, lot.city_place_id);
+  const steriles = await lireSteriles(supabase, lot.city, lot.city_place_id);
 
   // Pas de dossier, pas d'anecdote : on ne retombe jamais sur la mémoire du
-  // modèle. Et pas d'appel payant pour le constater.
+  // modèle. Et pas d'appel payant pour le constater. Mais un axe épuisé ne
+  // coûte plus un plan : le 9 octobre, Saint-Paul et Saint-Chamond ont
+  // dépensé deux de leurs trois plans sur un patrimoine vide. On essaie les
+  // axes suivants dans le même plan.
+  const vides: string[] = [];
+  let docs: SourceDoc[] = [];
+  for (const essai of ordreAxes(axe)) {
+    docs = await buildDossier(lot.city, articlesExploites, essai, lot.city_place_id, steriles);
+    if (docs.length > 0) {
+      axe = essai;
+      break;
+    }
+    vides.push(
+      `Aucune source neuve pour « ${lot.city} » sur l'axe ${essai} : ${articlesExploites.length} articles déjà exploités, ${steriles.length} lus récemment sans résultat.`
+    );
+  }
   if (docs.length === 0) {
-    const ecartes = [
-      `Aucune source neuve pour « ${lot.city} » sur l'axe ${axe} : les ${articlesExploites.length} articles disponibles ont déjà servi.`,
-    ];
-    await supabase.rpc('actualiser_lot', { p_lot: lot.id, p_sautees: ecartes });
-    return bilan(0, ecartes);
+    await supabase.rpc('actualiser_lot', { p_lot: lot.id, p_sautees: vides });
+    return bilan(0, vides);
   }
 
   // Quelques propositions de plus que nécessaire : le tri en écarte.
@@ -1135,7 +1241,7 @@ async function planifier(
 
   const tri = trierPropositions(plan?.sujets, docs, existantes, lot.city);
   let retenus = tri.retenus;
-  const ecartes = [...tri.ecartes];
+  const ecartes = [...vides, ...tri.ecartes];
 
   if (retenus.length > 0 && existantes.length > 0) {
     try {
@@ -1157,6 +1263,25 @@ async function planifier(
       // Sans réponse, on ne sait pas : mieux vaut un plan perdu qu'un doublon.
       ecartes.push(`Contrôle des doublons impossible : ${err instanceof Error ? err.message : String(err)}`);
       retenus = [];
+    }
+  }
+
+  // Un document dont aucun sujet n'a survécu ne revient pas avant un mois.
+  // Seulement quand le plan a répondu : un appel en échec ne dit rien des
+  // documents.
+  if (Array.isArray(plan?.sujets)) {
+    const sansSuite = documentsSteriles(docs, retenus);
+    if (sansSuite.length > 0) {
+      const { error } = await supabase.from('sources_steriles').insert(
+        sansSuite.map((article) => ({
+          city: lot.city,
+          city_place_id: lot.city_place_id,
+          article,
+          axe,
+          lot_id: lot.id,
+        }))
+      );
+      if (error) console.error('Sources stériles', error);
     }
   }
 
@@ -1276,11 +1401,11 @@ async function poursuivre(
   if (error) console.error('Lots à compléter', error);
 
   for (const l of (lots ?? []) as Array<Lot & { planifications: number; manque: number }>) {
-    // Un plan sur deux change d'axe : si les monuments n'ont pas suffi, les
-    // gens de la ville prennent le relais, et inversement.
-    const axeLot: Axe = l.axe === 'personnalites' ? 'personnalites' : 'patrimoine';
-    const axe: Axe =
-      l.planifications % 2 === 0 ? axeLot : axeLot === 'patrimoine' ? 'personnalites' : 'patrimoine';
+    // Chaque plan change d'axe : si les monuments n'ont pas suffi, les gens
+    // de la ville prennent le relais, puis son histoire. Un axe sans source
+    // neuve passe la main au suivant dans le même plan (voir `planifier`).
+    const axes = ordreAxes(lireAxe(l.axe));
+    const axe = axes[l.planifications % axes.length];
     try {
       plans.push(await planifier(apiKey, supabase, l, Math.min(l.manque, MAX_COUNT), axe));
     } catch (err) {
@@ -1359,7 +1484,7 @@ Deno.serve(async (req) => {
   // Une valeur inconnue retombe sur `patrimoine` plutôt que d'échouer : les
   // appelants existants — `produire_lot`, `produire_villes_demandees` — n'en
   // envoient aucune, et c'est leur comportement d'hier qu'il faut préserver.
-  const axe: Axe = body.axe === 'personnalites' ? 'personnalites' : 'patrimoine';
+  const axe = lireAxe(body.axe);
 
   if (!city) {
     return fail('Paramètre `city` manquant.');

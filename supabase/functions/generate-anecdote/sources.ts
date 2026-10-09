@@ -22,3 +22,17 @@ export function toPlainText(html: string): string {
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
+
+/**
+ * Mélange une liste sur place (Fisher-Yates), puis la rend. Sans mélange, une
+ * source rend toujours la même tranche — ordre alphabétique d'une catégorie,
+ * notices triées par longueur — et le dossier relit indéfiniment les mêmes
+ * documents. `hasard` est injectable pour les tests.
+ */
+export function melanger<T>(liste: T[], hasard: () => number = Math.random): T[] {
+  for (let i = liste.length - 1; i > 0; i--) {
+    const j = Math.floor(hasard() * (i + 1));
+    [liste[i], liste[j]] = [liste[j], liste[i]];
+  }
+  return liste;
+}

@@ -25,6 +25,48 @@ export const MAX_TITRE_CHARS = 140;
 const AFFECT =
   /(?<![\p{L}])(incroyables?|fascinant(?:e|s|es)?|étonnant(?:e|s|es)?|tragiques?|remarquables?|exceptionnel(?:le|s|les)?)(?![\p{L}])/giu;
 
+// Des labels officiels, pas des jugements : « Jardin remarquable »,
+// « Site patrimonial remarquable », « Arbre remarquable ».
+const LABELS = /(?<![\p{L}])(jardins?|arbres?|site patrimonial|sites patrimoniaux)\s+remarquables?(?![\p{L}])/giu;
+
+// Les seuls qu'on sache remplacer sans relire la phrase : même nature, même
+// accord, même sens à peu près. Les autres (« tragique », « étonnant »)
+// changent la phrase et restent au modèle.
+const SUBSTITUTS: Record<string, string> = {
+  remarquable: 'notable',
+  remarquables: 'notables',
+  exceptionnel: 'hors norme',
+  exceptionnelle: 'hors norme',
+  exceptionnels: 'hors norme',
+  exceptionnelles: 'hors norme',
+};
+const SUBSTITUABLES = /(?<![\p{L}])(remarquables?|exceptionnel(?:le|s|les)?)(?![\p{L}])/giu;
+
+/**
+ * Remplace « remarquable » et « exceptionnel » hors citations et hors labels.
+ *
+ * Le 8 octobre, deux anecdotes d'Arcachon ont été rejetées après trois
+ * corrections pour « les styles les plus remarquables de la ville » : la
+ * phrase vient de l'article, le modèle la reprend à chaque réécriture, et la
+ * règle la refuse à chaque fois. Un mot à changer ne vaut pas une anecdote.
+ */
+export function neutraliserAffects(texte: string): string {
+  return texte
+    .split(/(«[^»]*»|“[^”]*”|"[^"]*")/)
+    .map((morceau, i) => {
+      if (i % 2 === 1) return morceau; // une citation : intouchable
+      const labels: string[] = [];
+      const protege = morceau.replace(LABELS, (m) => `\uE000${labels.push(m) - 1}\uE000`);
+      return protege
+        .replace(SUBSTITUABLES, (mot) => {
+          const sub = SUBSTITUTS[mot.toLowerCase()];
+          return mot[0] === mot[0].toUpperCase() ? sub[0].toUpperCase() + sub.slice(1) : sub;
+        })
+        .replace(/\uE000(\d+)\uE000/g, (_, n) => labels[Number(n)]);
+    })
+    .join('');
+}
+
 const PRONOMS = /(?<![\p{L}])(je|j'|j’|nous|vous)(?![\p{L}])/giu;
 
 const OUVERTURES_BANNIES = [/^au c(œ|oe)ur d/i, /^situé(e)? (en|à|au|dans)/i, /^dans le centre/i];
@@ -94,7 +136,7 @@ export function controlerRedaction(r: ARediger): Qualite {
     problemes.push(`Ouverture par une situation géographique générique : « ${corps.slice(0, 40)}… ».`);
   }
 
-  const texteAuteur = horsCitations(`${accroche}\n${corps}`);
+  const texteAuteur = horsCitations(`${accroche}\n${corps}`).replace(LABELS, ' ');
 
   const affects = [...new Set([...texteAuteur.matchAll(AFFECT)].map((m) => m[1].toLowerCase()))];
   if (affects.length > 0) {
