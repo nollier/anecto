@@ -67,6 +67,77 @@ export function neutraliserAffects(texte: string): string {
     .join('');
 }
 
+/**
+ * Découpe un paragraphe en phrases. Prudente : un point suivi d'une
+ * majuscule ne coupe pas après une initiale (« M. Dupont », « J.-C. ») ni
+ * après une abréviation d'une ou deux lettres (« s. », « av. »).
+ */
+export function phrases(paragraphe: string): string[] {
+  const morceaux = paragraphe.split(/(?<=[.!?…»])\s+(?=[A-ZÀÂÉÈÊÎÔÙÛÇ«"0-9])/u);
+  const fusion: string[] = [];
+  for (const m of morceaux) {
+    const precedent = fusion[fusion.length - 1];
+    if (precedent && /(?:^|[\s(.-])\p{L}{1,2}\.$/u.test(precedent)) {
+      fusion[fusion.length - 1] = `${precedent} ${m}`;
+    } else {
+      fusion.push(m);
+    }
+  }
+  return fusion;
+}
+
+/** Ce qu'une phrase apporte : des dates, des chiffres, des noms propres. */
+function poids(phrase: string): number {
+  const chiffres = (phrase.match(/\d+/g) ?? []).length;
+  const noms = (phrase.slice(1).match(/(?<![.!?]\s)\b\p{Lu}\p{Ll}+/gu) ?? []).length;
+  return chiffres * 3 + noms;
+}
+
+/**
+ * Ramène un corps trop long sous `cible` mots en retirant des phrases, sans
+ * modèle : on ne fait qu'enlever, donc rien de non sourcé ne peut entrer.
+ *
+ * Le 9 octobre, « La meute qui gardait Saint-Malo » a été rejetée à 449
+ * puis 448 mots (plafond 430) après deux passes de resserrement par le
+ * modèle, qui raccourcit à peine. Dix-huit mots à retirer ne valaient pas
+ * une anecdote.
+ *
+ * Règles : le premier paragraphe (l'attaque) et le dernier (ce qu'il en
+ * reste) ne sont pas touchés ; dans ceux du milieu, la première phrase reste
+ * (elle porte le pivot) ; on retire d'abord les phrases qui pèsent le moins
+ * (sans date, sans chiffre, sans nom), les plus longues d'abord à poids
+ * égal. Rend null si la cible est hors d'atteinte sans vider un paragraphe.
+ */
+export function couperAuFormat(corps: string, cible = MAX_MOTS - 10): string | null {
+  const paragraphes = corps.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  if (mots(corps) <= cible) return corps;
+  if (paragraphes.length < 3) return null;
+
+  const decoupe = paragraphes.map((p) => phrases(p));
+  type Candidate = { p: number; i: number; poids: number; mots: number };
+  const candidates: Candidate[] = [];
+  for (let p = 1; p < decoupe.length - 1; p++) {
+    for (let i = 1; i < decoupe[p].length; i++) {
+      candidates.push({ p, i, poids: poids(decoupe[p][i]), mots: mots(decoupe[p][i]) });
+    }
+  }
+  candidates.sort((a, b) => a.poids - b.poids || b.mots - a.mots);
+
+  const retirees = new Set<string>();
+  let total = mots(corps);
+  for (const c of candidates) {
+    if (total <= cible) break;
+    if (total - c.mots < MIN_MOTS) continue;
+    retirees.add(`${c.p}:${c.i}`);
+    total -= c.mots;
+  }
+  if (total > cible) return null;
+
+  return decoupe
+    .map((ph, p) => ph.filter((_, i) => !retirees.has(`${p}:${i}`)).join(' '))
+    .join('\n\n');
+}
+
 const PRONOMS = /(?<![\p{L}])(je|j'|j’|nous|vous)(?![\p{L}])/giu;
 
 const OUVERTURES_BANNIES = [/^au c(œ|oe)ur d/i, /^situé(e)? (en|à|au|dans)/i, /^dans le centre/i];

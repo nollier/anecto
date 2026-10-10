@@ -54,7 +54,7 @@ import { type Axe, fetchExtract, fetchWikipediaDocs, lireAxe, ordreAxes } from '
 import { fetchPatrimoineDocs } from './patrimoine.ts';
 import type { SourceDoc } from './sources.ts';
 import { controler, normalize } from './verification.ts';
-import { controlerRedaction, MAX_MOTS, MIN_MOTS, neutraliserAffects, type Qualite } from './qualite.ts';
+import { controlerRedaction, couperAuFormat, MAX_MOTS, MIN_MOTS, neutraliserAffects, type Qualite } from './qualite.ts';
 import { articleDejaTraite, articlesSpecifiques, type Existante } from './doublons.ts';
 import {
   DOUBLONS_PLAN_SYSTEM,
@@ -478,6 +478,11 @@ async function ajuster(
     }
     if (!candidate || ecartFormat(candidate.corps) >= ecartFormat(meilleure.corps)) break;
     meilleure = candidate;
+  }
+  // Encore trop long après le modèle : on retire des phrases nous-mêmes.
+  if (sensAjustement(meilleure.corps) === 'resserrer') {
+    const coupe = couperAuFormat(meilleure.corps);
+    if (coupe) meilleure = { ...meilleure, corps: coupe };
   }
   return meilleure;
 }

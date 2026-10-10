@@ -3,7 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { controlerRedaction, horsCitations, neutraliserAffects } from './qualite.ts';
+import { controlerRedaction, couperAuFormat, horsCitations, neutraliserAffects, phrases } from './qualite.ts';
 
 /** Un paragraphe de 80 mots, sans rien de ce que les règles interdisent. */
 const PARAGRAPHE = Array.from({ length: 16 }, (_, i) => `Le môle numéro ${i} reçoit`).join(' ') + '.';
@@ -76,4 +76,43 @@ test('ne touche ni aux citations ni aux labels officiels', () => {
 test('un label officiel n’est pas un adjectif d’affect', () => {
   const corps = BON.corps.replace('Le môle numéro 0', 'Le site patrimonial remarquable numéro 0');
   assert.deepEqual(controlerRedaction({ ...BON, corps }).problemes, []);
+});
+
+test('ne coupe pas une phrase après une initiale ou une abréviation', () => {
+  assert.deepEqual(phrases('M. Dupont arrive en 1890. Il repart au XIXe s. vers Paris. Fin.'), [
+    'M. Dupont arrive en 1890.',
+    'Il repart au XIXe s. vers Paris.',
+    'Fin.',
+  ]);
+});
+
+const mot = (n: number) => Array.from({ length: n }, () => 'mot').join(' ');
+
+test('coupe les phrases sans date du milieu, garde l’attaque, la chute et les dates', () => {
+  const attaque = `En 1758, les Anglais débarquent. ${mot(60)}.`;
+  const milieu = (k: number) =>
+    `Puis vint la guerre, en ${1800 + k}. Le guet compte ${k + 20} chiens. ${mot(40)}. ${mot(35)}.`;
+  const chute = `Aujourd'hui, une rue porte leur nom depuis 1902. ${mot(50)}.`;
+  const corps = [attaque, milieu(1), milieu(2), milieu(3), chute].join('\n\n');
+  const coupe = couperAuFormat(corps, 400)!;
+  assert.ok(coupe);
+  const n = coupe.split(/\s+/).length;
+  assert.ok(n <= 400 && n >= 220, `${n} mots`);
+  const [p1, , , , p5] = coupe.split('\n\n');
+  assert.equal(p1, attaque);
+  assert.equal(p5, chute);
+  for (const k of [1, 2, 3]) {
+    assert.ok(coupe.includes(`en ${1800 + k}`));
+    assert.ok(coupe.includes(`${k + 20} chiens`));
+  }
+});
+
+test('ne touche pas un corps déjà au format', () => {
+  const corps = [mot(80), mot(80), mot(80), mot(80)].join('\n\n');
+  assert.equal(couperAuFormat(corps), corps);
+});
+
+test('renonce plutôt que de vider les paragraphes', () => {
+  const corps = [mot(200), mot(150), mot(150)].join('\n\n');
+  assert.equal(couperAuFormat(corps, 300), null);
 });
