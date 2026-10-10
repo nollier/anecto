@@ -34,3 +34,6 @@ verify_jwt = false
 
 [functions.relecture]
 verify_jwt = false
+
+[functions.villes-voisines]
+verify_jwt = false
