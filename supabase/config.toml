@@ -31,3 +31,6 @@ verify_jwt = false
 # jeton à usage unique dans l'URL tient lieu d'authentification.
 [functions.feedback-envoyer]
 verify_jwt = false
+
+[functions.villes-voisines]
+verify_jwt = false

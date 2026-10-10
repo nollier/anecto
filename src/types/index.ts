@@ -103,3 +103,23 @@ export interface HistoryEntry {
   read_at: string | null;
   anecdote?: Anecdote;
 }
+
+/** Une commune à moins de 30 km de la ville du lecteur. */
+export interface Voisine {
+  place_id: string;
+  ville: string;
+  distance_km: number;
+}
+
+/**
+ * Ce que l'app sait des villes voisines du lecteur : son accord (nul tant
+ * qu'il n'a pas été demandé), ce qu'il lui reste à lire chez lui, et les
+ * voisines, de la plus proche à la plus lointaine.
+ */
+export interface Voisinage {
+  place_id: string | null;
+  ville: string | null;
+  accepte: boolean | null;
+  restantes: number;
+  voisines: Voisine[];
+}

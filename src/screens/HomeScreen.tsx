@@ -9,12 +9,69 @@ import {
   Linking,
   RefreshControl,
   Platform,
+  Alert,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import AvisAnecdote from '../components/AvisAnecdote';
 import PartageAnecdote from '../components/PartageAnecdote';
-import { Anecdote, Statistiques } from '../types';
+import { Anecdote, Statistiques, Voisinage } from '../types';
+import { chargerVoisinage, libelleVoisine, proposerVoisines, repondreVoisines } from '../lib/voisinage';
+
+/** Les trois voisines les plus proches, en toutes lettres : « Ciboure, Urrugne et Guéthary ». */
+function nommerVoisines(v: Voisinage): string {
+  const noms = v.voisines.slice(0, 3).map((x) => x.ville);
+  if (noms.length === 0) return 'les villes à moins de 30 km';
+  if (noms.length === 1) return noms[0];
+  return `${noms.slice(0, -1).join(', ')} et ${noms[noms.length - 1]}`;
+}
+
+/**
+ * L'accord pour les villes voisines, demandé une fois pour toutes quand le
+ * lecteur arrive au bout de sa ville. Sa ville reste prioritaire : une
+ * voisine n'est servie que les jours où il n'y a rien de neuf chez lui.
+ */
+function CarteVoisines({
+  voisinage,
+  onRepondre,
+}: {
+  voisinage: Voisinage;
+  onRepondre: (accepte: boolean) => void;
+}) {
+  const reste = voisinage.restantes;
+  return (
+    <View style={styles.voisinesCarte}>
+      <Text style={styles.voisinesTitre}>
+        {reste === 0
+          ? `Tu as tout lu sur ${voisinage.ville}`
+          : `Bientôt au bout de ${voisinage.ville}`}
+      </Text>
+      <Text style={styles.voisinesTexte}>
+        {reste > 0
+          ? `Il te reste ${reste} anecdote${reste > 1 ? 's' : ''} à découvrir. `
+          : ''}
+        Ensuite, veux-tu des anecdotes de {nommerVoisines(voisinage)}, à moins de 30 km ?
+        {' '}{voisinage.ville} restera toujours prioritaire.
+      </Text>
+      <View style={styles.voisinesBoutons}>
+        <TouchableOpacity
+          style={styles.voisinesOui}
+          accessibilityRole="button"
+          onPress={() => onRepondre(true)}
+        >
+          <Text style={styles.voisinesOuiTexte}>Oui, élargir</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.voisinesNon}
+          accessibilityRole="button"
+          onPress={() => onRepondre(false)}
+        >
+          <Text style={styles.voisinesNonTexte}>Non merci</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
 
 /**
  * Ce que dit la flamme.
@@ -38,6 +95,7 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [profilConfigure, setProfilConfigure] = useState(true);
   const [stats, setStats] = useState<Statistiques | null>(null);
+  const [voisinage, setVoisinage] = useState<Voisinage | null>(null);
   const scrollRef = useRef<ScrollView>(null);
 
   // Recharge à chaque retour sur l'onglet : changer de ville dans les Réglages
@@ -94,6 +152,10 @@ export default function HomeScreen() {
     const { data: mesures } = await supabase.rpc('mes_statistiques');
     setStats((mesures as Statistiques[] | null)?.[0] ?? null);
 
+    // Après l'anecdote du jour : celle qu'on vient de servir ne compte plus
+    // dans ce qu'il reste à lire.
+    setVoisinage(await chargerVoisinage());
+
     setLoading(false);
     setRefreshing(false);
   }
@@ -110,6 +172,18 @@ export default function HomeScreen() {
       screen: 'Liste',
       params: { filtre: 'non_lues', demandeLe: Date.now() },
     });
+  }
+
+  async function repondre(accepte: boolean) {
+    try {
+      await repondreVoisines(accepte);
+    } catch (err) {
+      Alert.alert('Erreur', err instanceof Error ? err.message : "La réponse n'a pas été enregistrée.");
+      return;
+    }
+    // Une voisine a peut-être déjà de quoi lire : on recharge tout de suite.
+    setLoading(true);
+    await loadTodayAnecdote();
   }
 
   function ouvrirSource() {
@@ -150,14 +224,21 @@ export default function HomeScreen() {
             ville épuisée revient demain, une ville non couverte ne reviendra
             jamais. L'ancien « reviens plus tard » promettait la première à
             tout le monde, y compris à ceux pour qui c'était faux. */}
-        <Text style={styles.emptyTitle}>Rien à lire aujourd'hui</Text>
-        <Text style={styles.emptyText}>
-          Tu as lu toutes les anecdotes disponibles pour ta ville. D'autres
-          arrivent — et tu peux dès maintenant suivre une autre ville.
-        </Text>
-        <TouchableOpacity style={styles.cta} onPress={() => navigation.navigate('Réglages')}>
-          <Text style={styles.ctaText}>Changer de ville</Text>
-        </TouchableOpacity>
+        {proposerVoisines(voisinage) ? (
+          <CarteVoisines voisinage={voisinage!} onRepondre={repondre} />
+        ) : (
+          <>
+            <Text style={styles.emptyTitle}>Rien à lire aujourd'hui</Text>
+            <Text style={styles.emptyText}>
+              {voisinage?.accepte
+                ? `Tu as lu toutes les anecdotes de ${voisinage.ville} et de ses voisines. D'autres sont en préparation : reviens demain.`
+                : "Tu as lu toutes les anecdotes disponibles pour ta ville. D'autres arrivent — et tu peux dès maintenant suivre une autre ville."}
+            </Text>
+            <TouchableOpacity style={styles.cta} onPress={() => navigation.navigate('Réglages')}>
+              <Text style={styles.ctaText}>Changer de ville</Text>
+            </TouchableOpacity>
+          </>
+        )}
       </ScrollView>
     );
   }
@@ -226,6 +307,16 @@ export default function HomeScreen() {
         </View>
       )}
 
+      {/* L'accord se demande en haut, mais sous la série : il ne doit pas
+          passer avant ce qu'on vient chercher en ouvrant l'app. */}
+      {proposerVoisines(voisinage) && <CarteVoisines voisinage={voisinage!} onRepondre={repondre} />}
+
+      {/* Une anecdote d'une voisine le dit avant tout le reste : le lecteur
+          sait toujours où il est. */}
+      {!!libelleVoisine(anecdote, voisinage) && (
+        <Text style={styles.voisineLibelle}>📍 {libelleVoisine(anecdote, voisinage)}</Text>
+      )}
+
       <Text style={styles.eyebrow}>
         📖 Anecdote du jour · {anecdote.city}
         {anecdote.period ? ` · ${anecdote.period}` : ''}
@@ -286,6 +377,23 @@ const styles = StyleSheet.create({
   ajour: { marginTop: 8, fontSize: 13, color: '#888' },
   ajourFort: { color: '#1a1a1a', fontWeight: '600' },
   eyebrow: { fontSize: 13, color: '#888', marginBottom: 8, fontWeight: '600' },
+  voisineLibelle: { fontSize: 13, color: '#b3402f', fontWeight: '700', marginBottom: 4 },
+  voisinesCarte: {
+    alignSelf: 'stretch',
+    backgroundColor: '#faf6f2',
+    borderLeftWidth: 3,
+    borderLeftColor: '#b3402f',
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 20,
+  },
+  voisinesTitre: { fontSize: 16, fontWeight: '700', color: '#1a1a1a', marginBottom: 6 },
+  voisinesTexte: { fontSize: 14, color: '#444', lineHeight: 20 },
+  voisinesBoutons: { flexDirection: 'row', gap: 10, marginTop: 14 },
+  voisinesOui: { backgroundColor: '#222', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8 },
+  voisinesOuiTexte: { color: '#fff', fontSize: 14, fontWeight: '600' },
+  voisinesNon: { paddingVertical: 10, paddingHorizontal: 12 },
+  voisinesNonTexte: { color: '#666', fontSize: 14, fontWeight: '600' },
   // Une accroche fait une à deux lignes de plus qu'un titre de quatre mots :
   // 24 points la faisaient déborder sur quatre lignes.
   title: { fontSize: 21, fontWeight: '700', lineHeight: 28, marginBottom: 18, color: '#1a1a1a' },

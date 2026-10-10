@@ -8,6 +8,7 @@ import {
   Alert,
   ScrollView,
   Linking,
+  Switch,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase } from '../lib/supabase';
@@ -16,6 +17,7 @@ import { deviceTimezone } from '../lib/places';
 import CityPicker from '../components/CityPicker';
 import BlocParrainage from '../components/BlocParrainage';
 import { POLITIQUE_CONFIDENTIALITE } from '../lib/legal';
+import { repondreVoisines } from '../lib/voisinage';
 import { VilleCouverte } from '../types';
 
 export default function SettingsScreen() {
@@ -25,6 +27,9 @@ export default function SettingsScreen() {
   const [showPicker, setShowPicker] = useState(false);
   const [saving, setSaving] = useState(false);
   const [suppression, setSuppression] = useState(false);
+  // Nul tant que l'accueil ne l'a pas demandé : l'interrupteur montre alors
+  // « non », et le basculer vaut réponse.
+  const [voisines, setVoisines] = useState<boolean | null>(null);
 
   useEffect(() => {
     loadProfile();
@@ -36,7 +41,7 @@ export default function SettingsScreen() {
 
     const { data } = await supabase
       .from('profiles')
-      .select('city, city_place_id, notification_hour')
+      .select('city, city_place_id, notification_hour, villes_voisines')
       .eq('id', userData.user.id)
       .maybeSingle();
 
@@ -49,6 +54,8 @@ export default function SettingsScreen() {
       // était du texte libre. On demande de la resélectionner au catalogue.
       setLegacyCity(data.city);
     }
+
+    setVoisines(data.villes_voisines ?? null);
 
     if (data.notification_hour) {
       const [h, m] = data.notification_hour.split(':').map(Number);
@@ -128,6 +135,19 @@ export default function SettingsScreen() {
     // l'écran de connexion.
   }
 
+  // Enregistré sur-le-champ, sans passer par « Enregistrer » : c'est une
+  // préférence de lecture, pas un réglage de compte à valider en bloc.
+  async function basculerVoisines(valeur: boolean) {
+    const avant = voisines;
+    setVoisines(valeur);
+    try {
+      await repondreVoisines(valeur);
+    } catch (err) {
+      setVoisines(avant);
+      Alert.alert('Erreur', err instanceof Error ? err.message : "Le réglage n'a pas été enregistré.");
+    }
+  }
+
   function supprimerCompte() {
     Alert.alert(
       'Supprimer ton compte ?',
@@ -184,6 +204,19 @@ export default function SettingsScreen() {
         />
       )}
 
+      <Text style={styles.label}>Villes voisines</Text>
+      <View style={styles.voisinesLigne}>
+        <Text style={styles.voisinesTexte}>
+          Quand tu as tout lu sur ta ville, recevoir des anecdotes des villes à moins de 30 km.
+          Ta ville reste toujours prioritaire.
+        </Text>
+        <Switch
+          value={voisines === true}
+          onValueChange={basculerVoisines}
+          accessibilityLabel="Anecdotes des villes voisines"
+        />
+      </View>
+
       <TouchableOpacity style={styles.saveBtn} onPress={saveProfile} disabled={saving}>
         <Text style={styles.saveBtnText}>{saving ? 'Enregistrement...' : 'Enregistrer'}</Text>
       </TouchableOpacity>
@@ -219,6 +252,8 @@ const styles = StyleSheet.create({
   hint: { fontSize: 13, color: '#8a6417', marginBottom: 8, lineHeight: 18 },
   timeBtn: { borderWidth: 1, borderColor: '#ddd', borderRadius: 10, padding: 14, alignItems: 'center' },
   timeBtnText: { fontSize: 22, fontWeight: '700' },
+  voisinesLigne: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  voisinesTexte: { flex: 1, fontSize: 14, color: '#555', lineHeight: 20 },
   saveBtn: { backgroundColor: '#222', padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 40 },
   saveBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   secondaryBtn: {
