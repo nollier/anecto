@@ -19,6 +19,12 @@
 // `rapport_quotidien_complet` qui les réunit. Si elles divergent de nouveau,
 // le rapport part quand même, avec ce qu'il reçoit.
 //
+// Depuis le 10 octobre, trois ajouts (`suivi_quotidien`) : l'adresse des
+// nouveaux comptes, ce que DeepSeek a consommé (jetons de la veille, et
+// solde du compte relevé chaque matin : la différence est la dépense réelle),
+// et les anecdotes qui attendent une relecture humaine, chacune avec un lien
+// signé vers la page `relecture/` du site.
+//
 // Rien n'est marqué comme envoyé ici, contrairement aux autres alertes : un
 // rapport quotidien se recalcule intégralement à chaque passage. S'il échoue,
 // celui du lendemain le remplace, il n'y a rien à rattraper.
@@ -26,8 +32,12 @@
 import { createClient } from 'npm:@supabase/supabase-js@^2';
 import { envoyer, lireReglages } from './mail.ts';
 import { corsHeaders, fail, json } from './http.ts';
+import { DUREE_LIEN_MS, signer } from './signature.ts';
 
 const ADMIN_SECRET = Deno.env.get('ANECTO_ADMIN_SECRET');
+const DEEPSEEK_API_KEY = Deno.env.get('DEEPSEEK_API_KEY');
+const DEEPSEEK_BASE_URL = (Deno.env.get('DEEPSEEK_BASE_URL') ?? 'https://api.deepseek.com').replace(/\/+$/, '');
+const PAGE_RELECTURE = 'https://nollier.github.io/anecto/relecture/';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
@@ -73,6 +83,25 @@ interface Controle {
   corrigees: number;
   abandonnees: Array<{ ville: string; titre: string; motif: string }>;
   en_correction: number;
+}
+
+interface Suivi {
+  deepseek: {
+    appels: number;
+    jetons_entree: number;
+    jetons_cache: number;
+    jetons_sortie: number;
+    par_etape: Array<{ etape: string; appels: number; jetons: number }>;
+  };
+  a_relire: Array<{ id: string; ville: string; titre: string; lien?: string }>;
+  nouveaux_comptes: Array<{ email: string | null; ville: string | null }>;
+}
+
+/** Le solde du compte DeepSeek ce matin, et ce qu'il a perdu depuis la veille. */
+interface Solde {
+  devise: string;
+  solde: number;
+  depense: number | null;
 }
 
 // Un « J'adore » par anecdote et par lecteur : la liste d'une journée tient en
@@ -140,7 +169,45 @@ function suiteLot(l: Lot): string {
   return n > 0 ? `, ${n} en rédaction` : '';
 }
 
-function corps(r: Rapport, c: Controle | null): { texte: string; html: string } {
+/** « 1,2 M », « 340 k » : un ordre de grandeur suffit. */
+function jetons(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} M`;
+  if (n >= 1_000) return `${Math.round(n / 1_000)} k`;
+  return String(n);
+}
+
+function argent(n: number, devise: string): string {
+  return `${n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${devise}`;
+}
+
+/** Les lignes texte du suivi, reprises telles quelles dans le HTML. */
+function lignesSuivi(s: Suivi | null, solde: Solde | null): { comptes: string[]; deepseek: string[]; relire: string[] } {
+  const comptes = (s?.nouveaux_comptes ?? []).map((c) => `${c.email ?? 'compte sans adresse'}${c.ville ? ` (${c.ville})` : ''}`);
+  const d = s?.deepseek;
+  const deepseek: string[] = [];
+  if (d) {
+    deepseek.push(
+      `${d.appels} ${accord(d.appels, 'appel', 'appels')} : ${jetons(d.jetons_entree)} jetons lus (dont ${jetons(d.jetons_cache)} en cache), ${jetons(d.jetons_sortie)} écrits.`
+    );
+    if (d.par_etape.length > 0) {
+      deepseek.push(d.par_etape.map((e) => `${e.etape} ${jetons(e.jetons)}`).join(' · '));
+    }
+  }
+  if (solde) {
+    deepseek.push(
+      `Solde : ${argent(solde.solde, solde.devise)}${
+        solde.depense !== null ? ` (${solde.depense >= 0 ? '−' : '+'}${argent(Math.abs(solde.depense), solde.devise)} depuis hier)` : ''
+      }.`
+    );
+  } else if (DEEPSEEK_API_KEY) {
+    deepseek.push('Solde indisponible ce matin.');
+  }
+  const relire = (s?.a_relire ?? []).map((a) => `${a.ville} — ${a.titre}${a.lien ? ` : ${a.lien}` : ''}`);
+  return { comptes, deepseek, relire };
+}
+
+function corps(r: Rapport, c: Controle | null, s: Suivi | null, solde: Solde | null): { texte: string; html: string } {
+  const suivi = lignesSuivi(s, solde);
   const date = jourLisible(r.jour);
   const nouvellesDemandesListe = r.nouvelles_demandes ?? [];
   const villesPretesListe = r.villes_pretes ?? [];
@@ -163,6 +230,9 @@ function corps(r: Rapport, c: Controle | null): { texte: string; html: string } 
     lignes.push(
       `${r.nouveaux_profils} ${accord(r.nouveaux_profils, 'nouveau compte', 'nouveaux comptes')}.`
     );
+  }
+  if (suivi.comptes.length > 0) {
+    lignes.push(...suivi.comptes.map((c) => `  ${c}`));
   }
 
   // Le seul signal positif que le lecteur sache émettre. L'alerte retours
@@ -245,6 +315,18 @@ function corps(r: Rapport, c: Controle | null): { texte: string; html: string } 
     if (c.abandonnees.length > 0) {
       lignes.push(`  ✗ ${c.abandonnees.length} ${accord(c.abandonnees.length, 'rejetée', 'rejetées')} après 3 corrections.`);
     }
+  }
+
+  if (suivi.relire.length > 0) {
+    lignes.push(
+      '',
+      `À relire (${suivi.relire.length}) : le vérificateur doute, tout le reste est conforme.`,
+      ...suivi.relire.map((l) => `  ${l}`)
+    );
+  }
+
+  if (suivi.deepseek.length > 0) {
+    lignes.push('', 'DeepSeek (24 h) :', ...suivi.deepseek.map((l) => `  ${l}`));
   }
 
   const ligneStat = (valeur: string, libelle: string) =>
@@ -368,6 +450,36 @@ function corps(r: Rapport, c: Controle | null): { texte: string; html: string } 
   </div>`
     : '';
 
+  const comptesHtml =
+    suivi.comptes.length > 0
+      ? `<div style="font-size:14px;color:#666;margin:-8px 0 16px">${suivi.comptes.map(echapper).join('<br>')}</div>`
+      : '';
+
+  const aRelire = s?.a_relire ?? [];
+  const relireHtml =
+    aRelire.length > 0
+      ? `<div style="background:#faf6f2;border-left:3px solid #b3402f;padding:16px 18px;margin:24px 0">
+    <div style="font-size:13px;font-weight:700;color:#b3402f;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px">À relire</div>
+    <div style="font-size:13px;color:#666;margin-bottom:10px">Le vérificateur doute, tout le reste est conforme. Publier ou rejeter en un clic.</div>
+    ${aRelire
+      .map(
+        (a) =>
+          `<div style="font-size:15px;color:#1a1a1a;margin-bottom:6px">${
+            a.lien ? `<a href="${echapper(a.lien)}" style="color:#b3402f">${echapper(a.titre)}</a>` : echapper(a.titre)
+          } <span style="color:#888">— ${echapper(a.ville)}</span></div>`
+      )
+      .join('')}
+  </div>`
+      : '';
+
+  const deepseekHtml =
+    suivi.deepseek.length > 0
+      ? `<div style="background:#f7f7f7;border-left:3px solid #444;padding:16px 18px;margin:24px 0">
+    <div style="font-size:13px;font-weight:700;color:#444;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px">DeepSeek (24 h)</div>
+    ${suivi.deepseek.map((l) => `<div style="font-size:14px;color:#1a1a1a;margin-bottom:4px">${echapper(l)}</div>`).join('')}
+  </div>`
+      : '';
+
   const relecture =
     r.brouillons > 0
       ? `<p style="font-size:14px;color:#666;margin:0 0 8px">${r.brouillons} ${accord(
@@ -412,6 +524,8 @@ function corps(r: Rapport, c: Controle | null): { texte: string; html: string } 
     }
   </table>
 
+  ${comptesHtml}
+
   ${reactions}
 
   ${nouvellesDemandes}
@@ -422,6 +536,10 @@ function corps(r: Rapport, c: Controle | null): { texte: string; html: string } 
 
   ${production}
 
+  ${relireHtml}
+
+  ${deepseekHtml}
+
   <div style="border-top:1px solid #eee;padding-top:16px;margin-top:24px">
     <p style="font-size:14px;color:#666;margin:0 0 8px">${r.anecdotes_validees} anecdotes validées sur ${r.villes_ouvertes} villes.</p>
     ${relecture}
@@ -430,6 +548,64 @@ function corps(r: Rapport, c: Controle | null): { texte: string; html: string } 
 </div>`;
 
   return { texte: lignes.join('\n'), html };
+}
+
+const client = () => createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+type Db = ReturnType<typeof client>;
+
+/** Le suivi, liens de relecture signés. S'il échoue, le rapport part sans lui. */
+async function lireSuivi(supabase: Db): Promise<Suivi | null> {
+  const { data, error } = await supabase.rpc('suivi_quotidien');
+  if (error) {
+    console.error('Suivi quotidien', error);
+    return null;
+  }
+  const suivi = data as Suivi;
+  const exp = Date.now() + DUREE_LIEN_MS;
+  for (const a of suivi.a_relire ?? []) {
+    const sig = await signer(ADMIN_SECRET!, a.id, exp);
+    a.lien = `${PAGE_RELECTURE}#id=${a.id}&exp=${exp}&sig=${sig}`;
+  }
+  return suivi;
+}
+
+/**
+ * Le solde du compte DeepSeek, relevé et gardé chaque matin. La dépense est
+ * la différence avec le relevé de la veille ; une recharge entre-temps la
+ * rend négative, et le rapport l'affiche alors comme un gain.
+ */
+async function releverSolde(supabase: Db): Promise<Solde | null> {
+  if (!DEEPSEEK_API_KEY) return null;
+  try {
+    const res = await fetch(`${DEEPSEEK_BASE_URL}/user/balance`, {
+      headers: { Authorization: `Bearer ${DEEPSEEK_API_KEY}`, Accept: 'application/json' },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) {
+      console.error('Solde DeepSeek', res.status, (await res.text()).slice(0, 200));
+      return null;
+    }
+    const data = await res.json();
+    const info = (data?.balance_infos ?? [])[0];
+    const solde = Number(info?.total_balance);
+    const devise = String(info?.currency ?? '');
+    if (!Number.isFinite(solde) || !devise) return null;
+
+    const { data: veille } = await supabase
+      .from('soldes_deepseek')
+      .select('solde, devise')
+      .lt('created_at', new Date(Date.now() - 20 * 3600 * 1000).toISOString())
+      .order('created_at', { ascending: false })
+      .limit(1);
+    await supabase.from('soldes_deepseek').insert({ devise, solde });
+
+    const precedent = veille?.[0];
+    const depense = precedent && precedent.devise === devise ? Number(precedent.solde) - solde : null;
+    return { devise, solde, depense };
+  } catch (err) {
+    console.error('Solde DeepSeek', err);
+    return null;
+  }
 }
 
 Deno.serve(async (req) => {
@@ -451,7 +627,7 @@ Deno.serve(async (req) => {
     );
   }
 
-  const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+  const supabase = client();
 
   const { data, error } = await supabase.rpc('rapport_quotidien');
   if (error) {
@@ -468,7 +644,10 @@ Deno.serve(async (req) => {
   const { data: controle, error: controleError } = await supabase.rpc('controle_production');
   if (controleError) console.error('Contrôle production', controleError);
 
-  const { texte, html } = corps(rapport, controleError ? null : (controle as Controle));
+  const suivi = await lireSuivi(supabase);
+  const solde = await releverSolde(supabase);
+
+  const { texte, html } = corps(rapport, controleError ? null : (controle as Controle), suivi, solde);
 
   // Le sujet porte l'essentiel : la plupart des matins, il suffira à lui seul.
   const alerte = rapport.stocks_bas.length > 0 ? ` · ⚠ ${rapport.stocks_bas.length} stock bas` : '';

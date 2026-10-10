@@ -184,6 +184,8 @@ export const PLAN_SYSTEM = `Tu prépares le travail d'un rédacteur d'anecdotes 
 
 Un bon sujet est un objet précis, qu'on peut désigner par un nom propre ou une date : tel bâtiment et ce qui lui est arrivé, telle personne et un épisode daté de sa vie, tel événement, telle coutume, l'origine de tel nom. Pas une généralité (« l'histoire de la ville », « le patrimoine religieux »), pas de démographie, pas de géographie.
 
+Un sujet est une histoire, pas une fiche : quelque chose arrive, à une date, à quelqu'un ou à quelque chose, et change la suite. Un casino qui ouvre en 1928, fait faillite en 1934 et rouvre en 1952 est un sujet ; le même casino décrit par sa surface, ses horaires, ses tables de jeu ou sa capacité n'en est pas un. Écarte tout ce qui n'est que description, équipement, palmarès ou chiffres de fréquentation.
+
 Règles :
 - Chaque sujet repose sur UN SEUL document du dossier. Donne son numéro dans "document" (le nombre qui suit « === DOCUMENT ») et son titre dans "article".
 - L'article doit contenir lui-même, sur ce sujet, au moins trois faits précis (dates, noms, chiffres) : sans eux, pas de récit possible. Liste-les dans "faits", en quelques mots chacun, tels que l'article les donne.

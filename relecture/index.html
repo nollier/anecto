@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Anecto — relecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Public+Sans:wght@400;500;700&display=swap">
+<!--
+  Relecture humaine d'une anecdote que le vérificateur n'a pas su trancher.
+  Le lien vient du rapport du matin : l'anecdote, l'expiration et la
+  signature sont dans le fragment (#…), qui ne quitte jamais le navigateur.
+  La page ne fait que lire et transmettre : la fonction `relecture` vérifie
+  la signature et décide.
+-->
+<style>
+  :root {
+    --papier: #ffffff;
+    --encre: #161514;
+    --brique: #a8402f;
+    --grave: #6d635e;
+    --filet: #e6e1db;
+    --surface: #faf8f6;
+    --vert: #3f8f4f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --papier: #131211;
+      --encre: #ece8e3;
+      --brique: #e08268;
+      --grave: #a09690;
+      --filet: #2c2926;
+      --surface: #1b1917;
+      --vert: #79c088;
+    }
+  }
+  :root[data-theme="dark"] {
+    --papier: #131211;
+    --encre: #ece8e3;
+    --brique: #e08268;
+    --grave: #a09690;
+    --filet: #2c2926;
+    --surface: #1b1917;
+    --vert: #79c088;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--papier);
+    color: var(--encre);
+    font-family: 'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 16px;
+    line-height: 1.65;
+    margin: 0;
+    padding: clamp(2rem, 6vw, 4rem) 16px 5rem;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 36rem; margin: 0 auto; }
+  .eyebrow { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--brique); }
+  h1 { font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; font-size: clamp(1.75rem, 6vw, 2.25rem); line-height: 1.15; margin: 0.5rem 0 0.75rem; }
+  .accroche { font-size: 1.0625rem; color: var(--grave); margin: 0 0 1.5rem; }
+  .corps p { margin: 0 0 1rem; }
+  .bloc { background: var(--surface); border-left: 3px solid var(--brique); padding: 14px 16px; margin: 1.75rem 0; font-size: 0.9375rem; }
+  .bloc h2 { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 0.5rem; color: var(--brique); }
+  .bloc ul { margin: 0; padding-left: 1.1rem; }
+  .bloc pre { white-space: pre-wrap; font: inherit; margin: 0; color: var(--grave); }
+  a { color: var(--brique); }
+  .actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 2rem; }
+  button { font: inherit; font-weight: 700; border: 0; border-radius: 6px; padding: 12px 20px; cursor: pointer; }
+  .valider { background: var(--vert); color: #fff; }
+  .rejeter { background: transparent; color: var(--brique); border: 1px solid var(--brique); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .etat { margin-top: 1.5rem; font-weight: 700; }
+  .meta { font-size: 0.875rem; color: var(--grave); }
+</style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">Anecto — relecture</div>
+  <div id="contenu"><p class="meta">Chargement…</p></div>
+</main>
+<script>
+  const FONCTION = 'https://swvhclxwchrhyhtrvmhb.supabase.co/functions/v1/relecture';
+  const params = new URLSearchParams(location.hash.slice(1));
+  const lien = { id: params.get('id'), exp: Number(params.get('exp')), sig: params.get('sig') };
+  const contenu = document.getElementById('contenu');
+
+  function el(tag, attrs, ...enfants) {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) n.setAttribute(k, v);
+    for (const e of enfants) n.append(e);
+    return n;
+  }
+
+  async function appeler(action) {
+    const res = await fetch(FONCTION, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...lien, action }),
+    });
+    return { statut: res.status, corps: await res.json().catch(() => ({})) };
+  }
+
+  function erreur(message) {
+    contenu.replaceChildren(el('p', { class: 'etat' }, message));
+  }
+
+  async function charger() {
+    if (!lien.id || !lien.sig) return erreur('Lien incomplet.');
+    const { statut, corps } = await appeler('lire');
+    if (statut !== 200) return erreur(corps.error || 'Lien invalide ou expiré.');
+    const a = corps.anecdote;
+
+    const corpsTexte = el('div', { class: 'corps' }, ...String(a.body || '').split(/\n\s*\n/).map((p) => el('p', {}, p)));
+    const sources = el('div', { class: 'bloc' }, el('h2', {}, 'Source à vérifier'),
+      el('ul', {}, ...(a.sources || []).map((s) => el('li', {}, el('a', { href: s.url, target: '_blank', rel: 'noopener' }, `${s.editeur} — ${s.titre}`)))));
+    const reproches = el('div', { class: 'bloc' }, el('h2', {}, 'Ce que le vérificateur reproche'),
+      el('ul', {}, ...(a.problemes || []).map((p) => el('li', {}, p))));
+    const notes = el('div', { class: 'bloc' }, el('h2', {}, 'Citations vérifiées dans la source'), el('pre', {}, a.verification_notes || ''));
+
+    const etat = el('p', { class: 'etat' });
+    const valider = el('button', { class: 'valider', type: 'button' }, 'Publier');
+    const rejeter = el('button', { class: 'rejeter', type: 'button' }, 'Rejeter');
+    const decider = async (action) => {
+      valider.disabled = rejeter.disabled = true;
+      const r = await appeler(action);
+      if (r.statut === 200) etat.textContent = r.corps.status === 'validated' ? 'Publiée.' : 'Rejetée.';
+      else if (r.statut === 409) etat.textContent = 'Déjà traitée.';
+      else { etat.textContent = r.corps.error || 'Échec.'; valider.disabled = rejeter.disabled = false; }
+    };
+    valider.addEventListener('click', () => decider('valider'));
+    rejeter.addEventListener('click', () => decider('rejeter'));
+
+    const enAttente = a.status === 'draft' && a.a_relire;
+    contenu.replaceChildren(
+      el('p', { class: 'meta' }, `${a.city}${a.period ? ' · ' + a.period : ''}`),
+      el('h1', {}, a.title),
+      el('p', { class: 'accroche' }, a.hook || ''),
+      corpsTexte,
+      reproches,
+      sources,
+      notes,
+      enAttente ? el('div', { class: 'actions' }, valider, rejeter) : el('p', { class: 'etat' }, 'Déjà traitée.'),
+      etat
+    );
+  }
+
+  charger().catch(() => erreur('Service injoignable.'));
+</script>
+</body>
+</html>
