@@ -20,6 +20,29 @@ interface ChatOptions {
   user: string;
   temperature: number;
   maxTokens?: number;
+  /** Ce que l'appel sert à faire (plan, rédaction, vérification…) : pour le suivi. */
+  etape?: string;
+  ville?: string;
+}
+
+/** Ce qu'un appel a consommé, tel que DeepSeek le facture. */
+export interface Consommation {
+  etape: string;
+  ville: string | null;
+  modele: string;
+  jetons_entree: number;
+  jetons_cache: number;
+  jetons_sortie: number;
+}
+
+// Le 10 octobre, on ne savait pas ce que coûtait une journée : aucun appel
+// n'était compté. Chaque réponse porte pourtant son décompte (`usage`).
+// `index.ts` branche ici l'écriture en base ; sans branchement, rien n'est
+// compté et rien ne casse.
+let journal: ((c: Consommation) => Promise<void>) | null = null;
+
+export function compterAvec(fn: (c: Consommation) => Promise<void>): void {
+  journal = fn;
 }
 
 async function chat(opts: ChatOptions): Promise<string> {
@@ -49,6 +72,22 @@ async function chat(opts: ChatOptions): Promise<string> {
 
     if (res.ok) {
       const data = await res.json();
+      const usage = data?.usage;
+      if (usage && journal) {
+        // Le suivi ne doit jamais faire échouer l'appel qu'il décrit.
+        try {
+          await journal({
+            etape: opts.etape ?? 'autre',
+            ville: opts.ville ?? null,
+            modele: DEEPSEEK_MODEL,
+            jetons_entree: Number(usage.prompt_tokens) || 0,
+            jetons_cache: Number(usage.prompt_cache_hit_tokens) || 0,
+            jetons_sortie: Number(usage.completion_tokens) || 0,
+          });
+        } catch (err) {
+          console.error('Suivi DeepSeek', err);
+        }
+      }
       const content = data?.choices?.[0]?.message?.content;
       if (typeof content !== 'string' || content.trim() === '') {
         throw new DeepSeekError('Réponse DeepSeek vide.');

@@ -32,6 +32,14 @@
 //      compte soixante articles (Fête de l'Épinette, Jeanne Maillotte, Vœu du
 //      faisan) et l'article « Histoire de Lille » six sièges datés.
 //
+//   5. Un quatrième, `mentions`, depuis le 10 octobre, pour les villes que
+//      les trois autres ont épuisées. Saint-Jean-de-Luz n'avait plus que des
+//      notices de 400 à 900 caractères, alors que 1 834 articles de Wikipédia
+//      la citent : son port, son phare, ses corsaires, la colonisation basque
+//      des Amériques. On les trouve par la recherche plein texte, et on ne
+//      garde que ceux qui parlent vraiment de la ville et racontent une
+//      histoire datée (voir `estRacontable`).
+//
 // API MediaWiki : gratuite, sans clé. Elle applique en revanche une limite de
 // débit — d'où le nombre volontairement réduit de requêtes par dossier.
 
@@ -46,6 +54,9 @@ const MAX_CHARS_PER_DOC = 10000;
 // Nombre d'articles de monuments retenus par dossier. Au-delà, le modèle
 // s'éparpille et le coût des deux passes augmente sans gain de qualité.
 const MAX_ARTICLES = 7;
+// Articles lus au plus, sur l'axe des mentions, pour en trouver sept qui
+// racontent : quatre paquets de sept.
+const MAX_LECTURES_MENTIONS = 28;
 const TIMEOUT_MS = 15000;
 
 /**
@@ -55,10 +66,14 @@ const TIMEOUT_MS = 15000;
  * change de comportement. `personnalites` sert à sortir une ville de l'ornière
  * quand son corpus ne parle plus que de pierres.
  */
-export type Axe = 'patrimoine' | 'personnalites' | 'histoire';
+export type Axe = 'patrimoine' | 'personnalites' | 'histoire' | 'mentions';
 
-/** L'ordre dans lequel un lot tourne d'un axe à l'autre. */
-export const AXES: Axe[] = ['patrimoine', 'personnalites', 'histoire'];
+/**
+ * L'ordre dans lequel un lot tourne d'un axe à l'autre. `mentions` vient en
+ * dernier : un lot fait trois plans, il n'y arrive que lorsqu'un des trois
+ * premiers axes n'a plus de source neuve.
+ */
+export const AXES: Axe[] = ['patrimoine', 'personnalites', 'histoire', 'mentions'];
 
 /** Lit un axe venu de la base ou d'une requête. Inconnu : `patrimoine`. */
 export function lireAxe(valeur: unknown): Axe {
@@ -279,6 +294,74 @@ async function trouverHistoire(cityTitle: string): Promise<string[]> {
   return [...new Set(utiles)];
 }
 
+// Ce que la recherche plein texte ramène et qui ne raconte rien : le sport
+// (palmarès, saisons), les élections, les découpages, les transports, les
+// listes. Le reste est jugé sur pièce par `estRacontable`.
+const HORS_MENTIONS =
+  /^\d{4}\b|(?<![\p{L}])(rugby|football|basket|handball|championnat|coupe de|saison|tour de france|élections?|canton|circonscription|intercommunalité|agglomération|communauté|arrondissement|liste|gare|ligne|route|autoroute|réseau|autobus|tramway|club|équipe|olympique|festival|série télévisée|téléfilm|émission|album|chanson)(?![\p{L}])/iu;
+
+/**
+ * Les articles qui citent la ville, du plus pertinent au moins pertinent
+ * selon le moteur de Wikipédia. Le titre de l'article de la ville en est
+ * retiré : on cherche ce qui en parle ailleurs.
+ */
+async function trouverMentions(cityTitle: string): Promise<string[]> {
+  const nom = cityTitle.replace(/\s*\(.*\)$/, '');
+  let titres: string[] = [];
+  try {
+    const data = await call({
+      action: 'query',
+      list: 'search',
+      srsearch: `"${nom}"`,
+      srlimit: '100',
+      srnamespace: '0',
+    });
+    // deno-lint-ignore no-explicit-any
+    titres = (data?.query?.search ?? []).map((h: any) => h.title as string);
+  } catch (err) {
+    console.error('Wikipédia mentions', err);
+  }
+  const generaux = new Set([cityTitle, `Histoire de ${cityTitle}`].map((t) => t.toLowerCase()));
+  return titres.filter((t) => !generaux.has(t.toLowerCase()) && !HORS_MENTIONS.test(t));
+}
+
+/** Combien de fois l'article nomme la ville. */
+export function occurrences(texte: string, nom: string): number {
+  const plat = (t: string) =>
+    t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[-‐‑'’]/g, ' ').toLowerCase();
+  const aiguille = plat(nom);
+  if (!aiguille) return 0;
+  return plat(texte).split(aiguille).length - 1;
+}
+
+// Seuils de `estRacontable`. Volontairement bas : ils écartent la fiche
+// descriptive et l'article qui cite la ville en passant, et laissent au plan
+// le soin de juger le reste sujet par sujet.
+export const MIN_MILLESIMES = 4;
+export const MIN_OCCURRENCES = 3;
+
+/**
+ * L'article raconte-t-il une histoire qui se passe dans la ville ?
+ *
+ * Un casino décrit par sa surface, ses horaires et ses tables de jeu ne fait
+ * pas une anecdote ; son ouverture en 1928, sa faillite en 1934 et son rachat
+ * en 1952 en font une. Faute de lire l'article, on compte ce qui distingue
+ * l'un de l'autre : des millésimes différents, au moins quatre, et la ville
+ * nommée au moins trois fois — un article qui la cite une fois en passant
+ * parle d'autre chose. Le plan juge ensuite sujet par sujet.
+ */
+export function estRacontable(texte: string, nom: string): boolean {
+  // Une autre commune, un réseau de bus : leur article cite la ville voisine
+  // à chaque ligne, et ce qu'il raconte se passe ailleurs ou ne se raconte
+  // pas. Le 10 octobre, « Ciboure » arrivait en tête des mentions de
+  // Saint-Jean-de-Luz.
+  if (/\b(est une commune|est un réseau de transport|est le réseau de transport)/i.test(texte.slice(0, 400))) {
+    return false;
+  }
+  const millesimes = new Set(texte.match(/\b(?:1[0-9]\d{2}|20[0-2]\d)\b/g) ?? []);
+  return millesimes.size >= MIN_MILLESIMES && occurrences(texte, nom) >= MIN_OCCURRENCES;
+}
+
 /**
  * Extrait en texte brut d'un seul article. Page absente ou trop maigre : null.
  *
@@ -352,7 +435,9 @@ export async function fetchWikipediaDocs(
         ? await trouverPersonnalites(cityTitle)
         : axe === 'histoire'
           ? await trouverHistoire(cityTitle)
-          : await trouverMonuments(cityTitle);
+          : axe === 'mentions'
+            ? await trouverMentions(cityTitle)
+            : await trouverMonuments(cityTitle);
   } catch (err) {
     console.error(`Wikipédia ${axe}`, err);
   }
@@ -372,7 +457,7 @@ export async function fetchWikipediaDocs(
   // Sur l'axe histoire, « Histoire de X » est le premier document, pas un
   // repli : c'est là que les épisodes sont racontés.
   const contexte =
-    axe === 'personnalites'
+    axe === 'personnalites' || axe === 'mentions'
       ? []
       : (axe === 'histoire' ? [`Histoire de ${cityTitle}`] : [cityTitle, `Histoire de ${cityTitle}`]).filter(
           (t) =>
@@ -384,22 +469,40 @@ export async function fetchWikipediaDocs(
   // écarte les articles de moins de 1200 caractères, et les catégories de
   // naissance en sont pleines. Sans cette marge, un dossier de sept noms en
   // rendait deux.
+  //
   const combien = axe === 'personnalites' ? MAX_ARTICLES * 2 : MAX_ARTICLES;
+
+  const nom = cityTitle.replace(/\s*\(.*\)$/, '');
+  const docs: SourceDoc[] = [];
+  const lire = async (titres: string[]) => {
+    const resultats = await Promise.allSettled(titres.map(fetchExtract));
+    resultats.forEach((resultat, i) => {
+      if (resultat.status === 'rejected') {
+        console.error(`Wikipédia « ${titres[i]} »`, resultat.reason);
+      } else if (resultat.value && parleDe(resultat.value, cityTitle, city)) {
+        // Sur les axes qui ne sont pas tenus à la main (une catégorie, une
+        // liste rédigée), l'article doit aussi raconter : des dates, et la
+        // ville plus d'une fois.
+        if ((axe === 'mentions' || axe === 'histoire') && !estRacontable(resultat.value.extract, nom)) return;
+        docs.push(resultat.value);
+      }
+    });
+  };
+
+  // Les mentions se lisent par paquets de sept, jusqu'à sept articles qui
+  // racontent : sur Saint-Jean-de-Luz, deux des quatorze premiers passaient.
+  // Par paquets, et non d'un coup, parce que Wikipédia répond 429 au-delà
+  // d'une quinzaine de lectures simultanées.
+  if (axe === 'mentions') {
+    for (let i = 0; i < Math.min(neufs.length, MAX_LECTURES_MENTIONS) && docs.length < MAX_ARTICLES; i += MAX_ARTICLES) {
+      await lire(neufs.slice(i, i + MAX_ARTICLES));
+    }
+    return docs.slice(0, MAX_ARTICLES);
+  }
 
   const titres = [...new Set([...neufs.slice(0, combien), ...contexte])];
   if (titres.length === 0) return [];
-
-  const resultats = await Promise.allSettled(titres.map(fetchExtract));
-
-  const docs: SourceDoc[] = [];
-  resultats.forEach((resultat, i) => {
-    if (resultat.status === 'rejected') {
-      console.error(`Wikipédia « ${titres[i]} »`, resultat.reason);
-    } else if (resultat.value && parleDe(resultat.value, cityTitle, city)) {
-      docs.push(resultat.value);
-    }
-  });
-
+  await lire(titres);
   return docs;
 }
 

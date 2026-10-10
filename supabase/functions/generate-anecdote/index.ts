@@ -49,12 +49,12 @@
 // être appelée depuis l'app.
 
 import { createClient } from 'npm:@supabase/supabase-js@^2';
-import { chatJSON, DEEPSEEK_MODEL } from './deepseek.ts';
+import { chatJSON, compterAvec, DEEPSEEK_MODEL } from './deepseek.ts';
 import { type Axe, fetchExtract, fetchWikipediaDocs, lireAxe, ordreAxes } from './wikipedia.ts';
 import { fetchPatrimoineDocs } from './patrimoine.ts';
 import type { SourceDoc } from './sources.ts';
 import { controler, normalize } from './verification.ts';
-import { controlerRedaction, MAX_MOTS, MIN_MOTS, neutraliserAffects, type Qualite } from './qualite.ts';
+import { controlerRedaction, couperAuFormat, MAX_MOTS, MIN_MOTS, neutraliserAffects, type Qualite } from './qualite.ts';
 import { articleDejaTraite, articlesSpecifiques, type Existante } from './doublons.ts';
 import {
   DOUBLONS_PLAN_SYSTEM,
@@ -64,6 +64,7 @@ import {
   PLAN_SYSTEM,
   planPrompt,
   documentsSteriles,
+  MIN_CHARS_ARTICLE_SUJET,
   type SujetRetenu,
   sujetImpose,
   trierPropositions,
@@ -154,9 +155,14 @@ async function buildDossier(
   if (wiki.status === 'rejected') console.error('Wikipédia', wiki.reason);
   if (merimee.status === 'rejected') console.error('Mérimée', merimee.reason);
 
+  // Un document trop court pour porter un récit ne sert qu'à payer des jetons :
+  // le plan l'écarte de toute façon (« trop peu pour un récit »). Le 10
+  // octobre, quatre notices de Saint-Jean-de-Luz de 418 à 964 caractères
+  // revenaient ainsi à chaque plan.
+  const portent = (d: SourceDoc) => d.extract.length >= MIN_CHARS_ARTICLE_SUJET;
   return [
-    ...budget(wiki.status === 'fulfilled' ? wiki.value : [], MAX_CHARS_WIKIPEDIA),
-    ...budget(merimee.status === 'fulfilled' ? merimee.value : [], MAX_CHARS_MERIMEE),
+    ...budget((wiki.status === 'fulfilled' ? wiki.value : []).filter(portent), MAX_CHARS_WIKIPEDIA),
+    ...budget((merimee.status === 'fulfilled' ? merimee.value : []).filter(portent), MAX_CHARS_MERIMEE),
   ];
 }
 
@@ -171,6 +177,8 @@ async function buildDossier(
 // pêchait « un usage oublié d'un bâtiment », et allait le chercher dans la
 // seule phrase de l'article qui mentionnait une adresse.
 const SUJETS: Record<Axe, string> = {
+  mentions:
+    "Les articles du dossier ne portent pas sur la ville elle-même : chacun parle d'un lieu, d'une personne, d'un navire, d'une entreprise ou d'un événement qui la concerne. Le sujet est l'épisode qui se passe dans la ville, pas le reste de l'article. Ce qui fait un bon sujet : un épisode daté, avec ses acteurs et ses chiffres, qui s'est passé là. Une description n'est pas un sujet : surface, capacité, horaires, équipements, tarifs, palmarès ne font pas une anecdote. Pas de généralité géographique, pas de guide touristique, pas de démographie.\n\nSi aucun article ne raconte un épisode qui se passe dans la ville demandée, renvoie trouve = false.",
   histoire:
     "Le dossier porte sur l'histoire de la ville : événements, sièges, incendies, épidémies, fêtes et processions, institutions disparues, métiers et industries. Ce qui fait un bon sujet : un épisode daté, avec ses acteurs et ses chiffres, une coutume et son origine, une institution et ce qu'elle a laissé. Pas de résumé de plusieurs siècles, pas de chronologie, pas de généralité géographique, pas de guide touristique, pas de démographie.\n\nL'épisode doit se passer dans la ville demandée. Un article du dossier peut parler surtout d'une région ou d'un pays : n'en retiens que ce qui se passe dans la ville, et si rien ne s'y passe, renvoie trouve = false.",
   patrimoine:
@@ -414,6 +422,8 @@ async function allonger(
     user: allongementPrompt(city, redaction, docs, sens),
     temperature: 0.4,
     maxTokens: 3000,
+    etape: sens,
+    ville: city,
   });
   if (!r?.trouve) return null;
   const corps = String(r.corps ?? '').trim();
@@ -468,6 +478,11 @@ async function ajuster(
     }
     if (!candidate || ecartFormat(candidate.corps) >= ecartFormat(meilleure.corps)) break;
     meilleure = candidate;
+  }
+  // Encore trop long après le modèle : on retire des phrases nous-mêmes.
+  if (sensAjustement(meilleure.corps) === 'resserrer') {
+    const coupe = couperAuFormat(meilleure.corps);
+    if (coupe) meilleure = { ...meilleure, corps: coupe };
   }
   return meilleure;
 }
@@ -544,6 +559,8 @@ async function verifier(
     user: verificationPrompt(city, redaction, docs),
     temperature: 0,
     maxTokens: 2500,
+    etape: 'verification',
+    ville: city,
   });
   return {
     verdict: v?.verdict ?? 'refute',
@@ -648,12 +665,14 @@ const LIBELLES_AXE: Record<Axe, string> = {
   patrimoine: '',
   personnalites: ' (axe personnalités)',
   histoire: ' (axe histoire)',
+  mentions: ' (axe mentions)',
 };
 
 function axeDeLibelle(generatedBy: string | null): Axe {
   const g = generatedBy ?? '';
   if (g.includes(LIBELLES_AXE.personnalites)) return 'personnalites';
   if (g.includes(LIBELLES_AXE.histoire)) return 'histoire';
+  if (g.includes(LIBELLES_AXE.mentions)) return 'mentions';
   return 'patrimoine';
 }
 
@@ -690,6 +709,8 @@ async function redigerSujet(apiKey: string, supabase: Db, s: Sujet): Promise<Bil
       user: redactionPrompt(s.city, docs, { ...s, faits: s.faits ?? [] }),
       temperature: 0.5,
       maxTokens: 3000,
+      etape: 'redaction',
+      ville: s.city,
     });
     if (!redaction?.trouve) {
       return echouer(`Le modèle renonce : ${redaction?.raison || 'aucune raison donnée'}`);
@@ -888,7 +909,26 @@ async function dossierDe(supabase: Db, b: Brouillon): Promise<SourceDoc[]> {
   return docs;
 }
 
-type Issue = 'publiable' | 'a_reprendre' | 'abandonnee' | 'echec';
+type Issue = 'publiable' | 'a_reprendre' | 'abandonnee' | 'echec' | 'a_relire';
+
+/**
+ * Un brouillon que seul le doute du vérificateur retient : rédaction
+ * conforme, aucune faute, citations retrouvées dans la source, mais un
+ * verdict `doute`. Après trois corrections, il ne part plus au rejet : il
+ * attend une relecture humaine, qui tranche depuis le rapport du matin.
+ *
+ * Le 9 octobre, deux anecdotes ont été rejetées ainsi, dont une pour une
+ * médaille datée de 1839 que le dossier date lui-même de 1839. Un `refute`,
+ * une faute ou une citation introuvable restent des rejets : ce n'est pas au
+ * relecteur de rattraper un texte inventé.
+ */
+function relisible(verdict: string | null, qualiteOk: boolean | null, problemes: string[] | null): boolean {
+  return (
+    verdict === 'doute' &&
+    qualiteOk === true &&
+    !(problemes ?? []).some((p) => p.startsWith('Orthographe') || p.startsWith('Rédaction'))
+  );
+}
 
 interface BilanCorrection {
   id: string;
@@ -934,6 +974,16 @@ async function corrigerBrouillon(
   // disparu serait repris toutes les quinze minutes, indéfiniment.
   const echouer = async (motif: string): Promise<BilanCorrection> => {
     const abandon = tentative >= MAX_CORRECTIONS;
+    // La version en base a passé tous les contrôles sauf le vérificateur : la
+    // réécriture ratée n'y change rien, elle part en relecture.
+    if (abandon && relisible(b.verdict, b.qualite_ok, b.problemes)) {
+      await supabase
+        .from('anecdotes')
+        .update({ corrections: tentative, a_relire: true })
+        .eq('id', b.id);
+      await journal('a_relire', motif);
+      return { id: b.id, ville: b.city, titre: b.title, issue: 'a_relire', motif };
+    }
     await supabase
       .from('anecdotes')
       .update({ corrections: tentative, ...(abandon ? { status: 'rejected' } : {}) })
@@ -993,6 +1043,8 @@ async function corrigerBrouillon(
       user: correctionPrompt(b.city, actuelle, problemes, docs),
       temperature: 0.3,
       maxTokens: 3000,
+      etape: 'correction',
+      ville: b.city,
     });
   } catch (err) {
     return echouer(`Réécriture impossible : ${err instanceof Error ? err.message : String(err)}`);
@@ -1037,7 +1089,8 @@ async function corrigerBrouillon(
   const qualite = controlerRedaction(clean);
   const publiable = estPubliable(verification, qualite);
   const restants = problemesDe(verification, qualite);
-  const abandon = !publiable && tentative >= MAX_CORRECTIONS;
+  const aRelire = !publiable && tentative >= MAX_CORRECTIONS && relisible(verification.verdict, qualite.ok, restants);
+  const abandon = !publiable && !aRelire && tentative >= MAX_CORRECTIONS;
   const retenus = crediter(docs, controle.citationsValides);
   const sources = retenus.map((doc) => ({ url: doc.url, titre: doc.title, editeur: doc.editeur }));
 
@@ -1057,6 +1110,7 @@ async function corrigerBrouillon(
     problemes: restants,
     corrections: tentative,
     ...(abandon ? { status: 'rejected' } : {}),
+    ...(aRelire ? { a_relire: true } : {}),
   };
 
   let { error } = await supabase.from('anecdotes').update(miseAJour).eq('id', b.id);
@@ -1082,7 +1136,7 @@ async function corrigerBrouillon(
     });
   }
 
-  const issue: Issue = publiable ? 'publiable' : abandon ? 'abandonnee' : 'a_reprendre';
+  const issue: Issue = publiable ? 'publiable' : aRelire ? 'a_relire' : abandon ? 'abandonnee' : 'a_reprendre';
   await journal(issue, motif, {
     titre: clean.titre,
     verdict: verification.verdict,
@@ -1237,6 +1291,8 @@ async function planifier(
     user: planPrompt(lot.city, dossierPlan(docs), Math.min(combien + 4, 14), existantes),
     temperature: 0.3,
     maxTokens: 4000,
+    etape: 'plan',
+    ville: lot.city,
   });
 
   const tri = trierPropositions(plan?.sujets, docs, existantes, lot.city);
@@ -1251,6 +1307,8 @@ async function planifier(
         user: doublonsPlanPrompt(lot.city, retenus, existantes),
         temperature: 0,
         maxTokens: 800,
+        etape: 'doublons',
+        ville: lot.city,
       });
       const doublons = numerosDoublons(reponse, retenus.length);
       ecartes.push(
@@ -1444,6 +1502,13 @@ Deno.serve(async (req) => {
 
   const supabase = client();
   const debut = Date.now();
+
+  // Chaque appel DeepSeek de cette requête laisse une ligne : le rapport du
+  // matin en tire la consommation de la veille.
+  compterAvec(async (c) => {
+    const { error } = await supabase.from('deepseek_appels').insert(c);
+    if (error) console.error('Suivi DeepSeek', error);
+  });
 
   // Le journal ne doit jamais faire échouer ce qu'il décrit : une ligne
   // perdue vaut mieux qu'un lot perdu.
