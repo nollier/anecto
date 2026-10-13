@@ -11,6 +11,7 @@ import {
   Switch,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { oublierJetonPush, registerForPushNotificationsAsync } from '../lib/notifications';
 import { deviceTimezone } from '../lib/places';
@@ -21,6 +22,7 @@ import { repondreVoisines } from '../lib/voisinage';
 import { VilleCouverte } from '../types';
 
 export default function SettingsScreen() {
+  const navigation = useNavigation<any>();
   const [city, setCity] = useState<VilleCouverte | null>(null);
   const [legacyCity, setLegacyCity] = useState<string | null>(null);
   const [notifTime, setNotifTime] = useState(new Date(new Date().setHours(21, 0, 0, 0)));
@@ -30,6 +32,9 @@ export default function SettingsScreen() {
   // Nul tant que l'accueil ne l'a pas demandé : l'interrupteur montre alors
   // « non », et le basculer vaut réponse.
   const [voisines, setVoisines] = useState<boolean | null>(null);
+  // Vrai tant que le profil n'a jamais eu de ville : le premier
+  // enregistrement mène directement à l'anecdote du jour, déjà disponible.
+  const [premiereConfig, setPremiereConfig] = useState(true);
 
   useEffect(() => {
     loadProfile();
@@ -46,6 +51,8 @@ export default function SettingsScreen() {
       .maybeSingle();
 
     if (!data) return;
+
+    setPremiereConfig(!data.city);
 
     if (data.city_place_id) {
       setCity({ ville: data.city, place_id: data.city_place_id });
@@ -111,6 +118,22 @@ export default function SettingsScreen() {
       }
 
       setLegacyCity(null);
+
+      // La première anecdote est servie tout de suite : sans cette bascule,
+      // le lecteur attend la notification du soir alors que la première
+      // n'arrivera que le lendemain.
+      if (premiereConfig) {
+        setPremiereConfig(false);
+        navigation.navigate("Aujourd'hui");
+        Alert.alert(
+          'Ta première anecdote est prête',
+          pushToken
+            ? `La voici ! Les suivantes arriveront chaque jour à ${hh}:${mm}, dès demain.`
+            : `La voici ! Les suivantes seront disponibles chaque jour dans l'onglet Aujourd'hui.\n\nLes notifications ne sont pas disponibles ici (Expo Go, ou projectId EAS manquant).`
+        );
+        return;
+      }
+
       Alert.alert(
         'Enregistré',
         pushToken
