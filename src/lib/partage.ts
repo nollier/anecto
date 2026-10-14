@@ -30,18 +30,38 @@ export function lienTelechargement(source: string, code: string | null): string 
   return `${PAGE_TELECHARGEMENT}?${params.toString()}`;
 }
 
+/** Les fiches des deux magasins, et le nom sous lequel l'app s'y cherche. */
+export const NOM_MAGASIN = 'Anecto - Anecdotes de ta ville';
+export const LIEN_APP_STORE = 'https://apps.apple.com/fr/app/anecto-anecdotes-locales/id6804257118';
+export const LIEN_GOOGLE_PLAY = 'https://play.google.com/store/apps/details?id=fr.anecto.app';
+
+/**
+ * Le lien Google Play d'un partage, porteur du code du lecteur.
+ *
+ * Même référent que celui posé par la page de téléchargement : Google Play le
+ * rend à l'app au premier lancement, le parrainage reste donc rattaché sans
+ * passer par la page. L'App Store ne transmet rien de tel, son lien reste nu.
+ */
+export function lienGooglePlay(source: string, code: string | null): string {
+  const referent = `utm_source=${source}&utm_medium=lien` + (code ? `&anecto_code=${code}` : '');
+  return `${LIEN_GOOGLE_PLAY}&referrer=${encodeURIComponent(referent)}`;
+}
+
 /**
  * L'invitation qui clôt tout partage.
  *
  * Elle est indispensable : l'anecdote voyage en texte brut, hors de
  * l'application, et son destinataire n'a le plus souvent pas de compte. Sans
  * cette phrase, il lit une anecdote sans jamais savoir d'où elle vient ni
- * comment en recevoir d'autres.
+ * comment en recevoir d'autres. Les deux fiches sont données directement :
+ * le destinataire clique sur celle de son téléphone, sans page intermédiaire.
  */
 function invitation(code: string | null): string {
   return (
-    "Partagée depuis Anecto, qui envoie chaque jour une anecdote vraie et vérifiée sur ta ville.\n" +
-    `Crée ton compte gratuit pour retrouver celle-ci et toutes les autres : ${lienTelechargement('partage', code)}`
+    "Partagée depuis Anecto, qui envoie chaque jour une anecdote vraie et vérifiée sur ta ville. " +
+    'Gratuit, sans publicité :\n' +
+    `📱 App Store : ${LIEN_APP_STORE}\n` +
+    `🤖 Google Play : ${lienGooglePlay('partage', code)}`
   );
 }
 

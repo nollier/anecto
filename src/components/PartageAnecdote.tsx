@@ -10,7 +10,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
-import { partagerAnecdote, partagerImage } from '../lib/partage';
+import { NOM_MAGASIN, partagerAnecdote, partagerImage } from '../lib/partage';
 import { monCodeParrainage } from '../lib/parrainage';
 import { Anecdote } from '../types';
 
@@ -57,33 +57,44 @@ const Carte = React.forwardRef<View, { anecdote: Anecdote }>(({ anecdote }, ref)
       <View style={carte.filet} />
       <Text style={carte.entete}>{entete.toUpperCase()}</Text>
       <Text style={carte.titre} numberOfLines={5}>{anecdote.hook || anecdote.title}</Text>
-      <Text style={carte.corps} numberOfLines={13}>
+      <Text style={carte.corps} numberOfLines={11}>
         {texte}
         {coupe ? ' […]' : ''}
       </Text>
+      {/* Aucun lien ne voyage avec une image, et une story ne se clique pas :
+          le pied dit donc où trouver l'app et sous quel nom la chercher. */}
       <View style={carte.pied}>
         <Text style={carte.marque}>Anecto</Text>
         <Text style={carte.promesse}>
           {coupe ? 'La suite, et une anecdote vraie sur ta ville chaque jour.' : 'Une anecdote vraie sur ta ville, chaque jour.'}
         </Text>
-        <Text style={carte.magasins}>Gratuit · App Store et Google Play</Text>
+        <Text style={carte.magasins}>Gratuit sur l'App Store et Google Play. Cherche :</Text>
+        <Text style={carte.recherche}>« {NOM_MAGASIN} »</Text>
       </View>
     </View>
   );
 });
 
+/** Taille de la miniature dans le bloc : la carte réelle, réduite. */
+const ECHELLE_MINIATURE = 0.24;
+
 /**
- * Les deux façons de partager une anecdote : le texte entier avec sa source,
- * ou une image au format story.
+ * Le bloc « Soutiens Anecto » qui clôt chaque anecdote.
  *
- * Le texte convient à une messagerie, entre proches ; l'image, aux stories et
- * aux fils où un lien seul ne se lit pas. L'image passe par un aperçu : on
- * ne publie pas sur Instagram quelque chose qu'on n'a pas vu.
+ * Anecto n'a ni publicité ni abonnement : ce sont les lecteurs qui le font
+ * connaître, d'où un appel franc plutôt que deux boutons discrets. La
+ * miniature est la carte elle-même, réduite : le lecteur voit ce qu'il va
+ * envoyer, le bouton peut donc partager sans passer par un aperçu. Toucher la
+ * miniature l'ouvre en grand pour qui veut la lire avant.
+ *
+ * Le texte reste proposé en second : il convient à une messagerie, entre
+ * proches, et c'est lui qui porte les liens vers les magasins.
  */
 export default function PartageAnecdote({ anecdote }: { anecdote: Anecdote }) {
   const [apercu, setApercu] = useState(false);
   const [capture, setCapture] = useState(false);
-  const refCarte = useRef<View>(null);
+  const refMiniature = useRef<View>(null);
+  const refApercu = useRef<View>(null);
   const { width, height } = useWindowDimensions();
 
   // Le code d'invitation est chargé dès l'affichage de l'anecdote : au moment
@@ -97,11 +108,11 @@ export default function PartageAnecdote({ anecdote }: { anecdote: Anecdote }) {
   // touche pas la capture.
   const echelle = Math.min(1, (width - 48) / LARGEUR, (height - 220) / HAUTEUR);
 
-  async function partager() {
+  async function partager(ref: React.RefObject<View | null>) {
     if (capture) return;
     setCapture(true);
     try {
-      const uri = await captureRef(refCarte, {
+      const uri = await captureRef(ref, {
         format: 'png',
         width: 1080,
         height: 1920,
@@ -118,23 +129,40 @@ export default function PartageAnecdote({ anecdote }: { anecdote: Anecdote }) {
 
   return (
     <>
-      {/* Discrets : partager est une envie qui vient après la lecture, pas
-          l'action que l'écran réclame. Des boutons pleins les mettraient
-          au-dessus de l'anecdote. */}
-      <View style={styles.rangee}>
+      <View style={styles.bloc}>
+        <View style={styles.haut}>
+          <TouchableOpacity
+            accessibilityRole="imagebutton"
+            accessibilityLabel="Voir l'image en grand"
+            onPress={() => setApercu(true)}
+            style={styles.miniature}
+          >
+            <Reduite echelle={ECHELLE_MINIATURE}>
+              <Carte ref={refMiniature} anecdote={anecdote} />
+            </Reduite>
+          </TouchableOpacity>
+          <View style={styles.appel}>
+            <Text style={styles.titre}>Soutiens Anecto en partageant cette anecdote</Text>
+            <Text style={styles.sousTitre}>
+              Chaque partage fait découvrir Anecto à quelqu'un de plus. Merci !
+            </Text>
+          </View>
+        </View>
+
         <TouchableOpacity
-          style={styles.bouton}
+          style={styles.principal}
           accessibilityRole="button"
-          onPress={() => partagerAnecdote(anecdote)}
+          onPress={() => partager(refMiniature)}
+          disabled={capture}
         >
-          <Text style={styles.boutonTexte}>↗ Envoyer le texte</Text>
+          {capture && !apercu ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.principalTexte}>Partager l'image</Text>
+          )}
         </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.bouton}
-          accessibilityRole="button"
-          onPress={() => setApercu(true)}
-        >
-          <Text style={styles.boutonTexte}>▣ Partager en image</Text>
+        <TouchableOpacity accessibilityRole="button" onPress={() => partagerAnecdote(anecdote)}>
+          <Text style={styles.secondaire}>↗ ou envoyer le texte</Text>
         </TouchableOpacity>
       </View>
 
@@ -145,20 +173,15 @@ export default function PartageAnecdote({ anecdote }: { anecdote: Anecdote }) {
         onRequestClose={() => setApercu(false)}
       >
         <View style={styles.modale}>
-          <View style={{ width: LARGEUR * echelle, height: HAUTEUR * echelle }}>
-            <View
-              style={{
-                position: 'absolute',
-                left: (LARGEUR * echelle - LARGEUR) / 2,
-                top: (HAUTEUR * echelle - HAUTEUR) / 2,
-                transform: [{ scale: echelle }],
-              }}
-            >
-              <Carte ref={refCarte} anecdote={anecdote} />
-            </View>
-          </View>
+          <Reduite echelle={echelle}>
+            <Carte ref={refApercu} anecdote={anecdote} />
+          </Reduite>
 
-          <TouchableOpacity style={styles.principal} onPress={partager} disabled={capture}>
+          <TouchableOpacity
+            style={[styles.principal, styles.principalApercu]}
+            onPress={() => partager(refApercu)}
+            disabled={capture}
+          >
             {capture ? (
               <ActivityIndicator color="#fff" />
             ) : (
@@ -171,6 +194,30 @@ export default function PartageAnecdote({ anecdote }: { anecdote: Anecdote }) {
         </View>
       </Modal>
     </>
+  );
+}
+
+/**
+ * La carte affichée à une autre échelle, sans changer ses dimensions.
+ *
+ * La capture lit la mise en page de la carte, pas sa transformation : réduite
+ * ou non, elle sort toujours en 1080 × 1920. Le cadre extérieur prend la
+ * taille réduite pour que la mise en page autour reste juste.
+ */
+function Reduite({ echelle, children }: { echelle: number; children: React.ReactNode }) {
+  return (
+    <View style={{ width: LARGEUR * echelle, height: HAUTEUR * echelle }}>
+      <View
+        style={{
+          position: 'absolute',
+          left: (LARGEUR * echelle - LARGEUR) / 2,
+          top: (HAUTEUR * echelle - HAUTEUR) / 2,
+          transform: [{ scale: echelle }],
+        }}
+      >
+        {children}
+      </View>
+    </View>
   );
 }
 
@@ -193,18 +240,46 @@ const carte = StyleSheet.create({
   pied: { marginTop: 'auto', borderTopWidth: 1, borderTopColor: '#e6e1db', paddingTop: 16 },
   marque: { fontFamily: serif, fontSize: 26, color: '#a8402f' },
   promesse: { fontSize: 13, lineHeight: 18, color: '#161514', marginTop: 4 },
-  magasins: { fontSize: 11, color: '#6d635e', marginTop: 6 },
+  magasins: { fontSize: 11, color: '#6d635e', marginTop: 8 },
+  recherche: { fontSize: 12, fontWeight: '700', color: '#161514', marginTop: 2 },
 });
 
 const styles = StyleSheet.create({
-  rangee: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 20 },
-  bouton: {
-    paddingVertical: 9,
-    paddingHorizontal: 14,
-    borderRadius: 9,
-    backgroundColor: '#fbeeeb',
+  // Mêmes crème et rouge brique que la carte : le bloc annonce l'image qu'il
+  // envoie.
+  bloc: {
+    marginTop: 24,
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: '#faf6f1',
+    borderWidth: 1,
+    borderColor: '#ece4da',
   },
-  boutonTexte: { fontSize: 13, fontWeight: '600', color: '#b3402f' },
+  haut: { flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 14 },
+  miniature: {
+    borderRadius: 6,
+    overflow: 'hidden',
+    transform: [{ rotate: '-4deg' }],
+    shadowColor: '#3c1e14',
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+    backgroundColor: '#faf6f1',
+  },
+  appel: { flex: 1, minWidth: 0 },
+  titre: { fontFamily: serif, fontSize: 18, lineHeight: 23, color: '#161514' },
+  sousTitre: { fontSize: 13, lineHeight: 18, color: '#6d635e', marginTop: 6 },
+  principal: {
+    backgroundColor: '#a8402f',
+    paddingVertical: 13,
+    borderRadius: 11,
+    alignItems: 'center',
+    alignSelf: 'stretch',
+  },
+  principalApercu: { marginTop: 24 },
+  principalTexte: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  secondaire: { textAlign: 'center', color: '#a8402f', fontSize: 13.5, fontWeight: '600', marginTop: 12 },
   modale: {
     flex: 1,
     alignItems: 'center',
@@ -212,14 +287,5 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     padding: 24,
   },
-  principal: {
-    backgroundColor: '#222',
-    paddingVertical: 14,
-    borderRadius: 10,
-    alignItems: 'center',
-    alignSelf: 'stretch',
-    marginTop: 24,
-  },
-  principalTexte: { color: '#fff', fontSize: 16, fontWeight: '600' },
   annuler: { textAlign: 'center', color: '#888', marginTop: 16, fontSize: 14 },
 });

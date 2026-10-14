@@ -11,10 +11,12 @@ Identifiant Apple : `6804257118`. Identifiant de lot : `fr.anecto.app`.
 ## Nom (30 caractères max)
 
 ```
-Anecto - Anecdotes locales
+Anecto - Anecdotes de ta ville
 ```
 
-*26 caractères.* Le nom sert deux choses à la fois : il se lit, et Apple
+*30 caractères, la limite exacte.* C'est aussi le nom que la carte partagée
+en image invite à chercher (`NOM_MAGASIN` dans `src/lib/partage.ts`) : les
+deux doivent rester identiques. Le nom sert deux choses à la fois : il se lit, et Apple
 l'indexe. D'où le suffixe — mais il doit apporter des mots que le sous-titre
 n'a pas, sinon les deux lignes les plus précieuses de la fiche disent la même
 chose et le référencement n'y gagne rien.
