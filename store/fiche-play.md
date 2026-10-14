@@ -8,8 +8,12 @@ la console refuse tout dépassement.
 ## Nom de l'application (30 caractères max)
 
 ```
-Anecto
+Anecto - Anecdotes de ta ville
 ```
+
+*30 caractères, la limite exacte.* Différent du nom App Store
+(« Anecto - Anecdotes locales ») : la carte partagée en image invite donc à
+chercher « Anecto », commun aux deux.
 
 ## Description courte (80 caractères max)
 
