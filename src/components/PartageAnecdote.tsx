@@ -10,7 +10,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
-import { NOM_MAGASIN, partagerAnecdote, partagerImage } from '../lib/partage';
+import { partagerAnecdote, partagerImage } from '../lib/partage';
 import { monCodeParrainage } from '../lib/parrainage';
 import { Anecdote } from '../types';
 
@@ -62,14 +62,15 @@ const Carte = React.forwardRef<View, { anecdote: Anecdote }>(({ anecdote }, ref)
         {coupe ? ' […]' : ''}
       </Text>
       {/* Aucun lien ne voyage avec une image, et une story ne se clique pas :
-          le pied dit donc où trouver l'app et sous quel nom la chercher. */}
+          le pied dit donc où trouver l'app et sous quel nom la chercher.
+          « Anecto » seul : c'est le mot commun aux noms des deux fiches. */}
       <View style={carte.pied}>
         <Text style={carte.marque}>Anecto</Text>
         <Text style={carte.promesse}>
           {coupe ? 'La suite, et une anecdote vraie sur ta ville chaque jour.' : 'Une anecdote vraie sur ta ville, chaque jour.'}
         </Text>
-        <Text style={carte.magasins}>Gratuit sur l'App Store et Google Play. Cherche :</Text>
-        <Text style={carte.recherche}>« {NOM_MAGASIN} »</Text>
+        <Text style={carte.magasins}>Gratuit sur l'App Store et Google Play.</Text>
+        <Text style={carte.recherche}>Cherche « Anecto »</Text>
       </View>
     </View>
   );

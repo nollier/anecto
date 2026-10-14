@@ -30,8 +30,7 @@ export function lienTelechargement(source: string, code: string | null): string 
   return `${PAGE_TELECHARGEMENT}?${params.toString()}`;
 }
 
-/** Les fiches des deux magasins, et le nom sous lequel l'app s'y cherche. */
-export const NOM_MAGASIN = 'Anecto - Anecdotes de ta ville';
+/** Les fiches des deux magasins. */
 export const LIEN_APP_STORE = 'https://apps.apple.com/fr/app/anecto-anecdotes-locales/id6804257118';
 export const LIEN_GOOGLE_PLAY = 'https://play.google.com/store/apps/details?id=fr.anecto.app';
 
