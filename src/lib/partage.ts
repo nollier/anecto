@@ -4,32 +4,6 @@ import { Anecdote } from '../types';
 import { monCodeParrainage } from './parrainage';
 import { proposerAvisMagasin } from './avisMagasin';
 
-/**
- * Page d'atterrissage du partage.
- *
- * Le lien pointe vers une page plutôt que vers une fiche de magasin : celui
- * qui reçoit l'anecdote est sur iOS ou sur Android, on ne le sait pas, et une
- * page hébergée par GitHub Pages depuis ce dépôt se corrige sans republier
- * l'application — l'identifiant App Store, par exemple, n'existera qu'après la
- * première validation d'Apple.
- */
-export const PAGE_TELECHARGEMENT = 'https://nollier.github.io/anecto/telecharger/';
-
-/**
- * Le lien vers la page de téléchargement, marqué de son canal et du code du
- * lecteur qui le partage.
- *
- * `src` dit par où le visiteur est arrivé, `p` qui l'a invité. La page les
- * compte, puis les transmet à Google Play dans le référent d'installation,
- * que l'app relit au premier lancement. Sans code — hors ligne, session
- * perdue — le lien reste valable, il n'est simplement rattaché à personne.
- */
-export function lienTelechargement(source: string, code: string | null): string {
-  const params = new URLSearchParams({ src: source });
-  if (code) params.set('p', code);
-  return `${PAGE_TELECHARGEMENT}?${params.toString()}`;
-}
-
 /** Les fiches des deux magasins. */
 export const LIEN_APP_STORE = 'https://apps.apple.com/fr/app/anecto-anecdotes-locales/id6804257118';
 export const LIEN_GOOGLE_PLAY = 'https://play.google.com/store/apps/details?id=fr.anecto.app';
@@ -149,9 +123,13 @@ export async function partagerImage(uri: string): Promise<void> {
  */
 export async function partagerInvitation(): Promise<void> {
   const code = await monCodeParrainage();
+  // Les deux fiches directement, comme à la fin d'un partage d'anecdote : le
+  // destinataire clique sur celle de son téléphone, sans page intermédiaire.
   const message =
     "Je lis chaque jour une anecdote vraie et vérifiée sur ma ville avec Anecto. " +
-    `C'est gratuit, sans publicité : ${lienTelechargement('parrainage', code)}` +
+    "C'est gratuit, sans publicité :\n" +
+    `📱 App Store : ${LIEN_APP_STORE}\n` +
+    `🤖 Google Play : ${lienGooglePlay('parrainage', code)}` +
     (code ? `\nSur iPhone, saisis mon code ${code} dans les Réglages de l'app.` : '');
 
   try {

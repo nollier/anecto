@@ -115,11 +115,10 @@ Tout le contenu tient dans `message`, jamais dans `url` : sur iOS, un `url`
 fourni à côté fait que certaines destinations ne reprennent que lui et jettent
 le texte.
 
-Le lien de l'invitation pointe vers `telecharger/index.html`, publiée par
-GitHub Pages depuis ce dépôt comme les pages légales. Une page plutôt qu'une
-fiche de magasin : on ne sait pas sur quel système est le destinataire, et la
-page se corrige sans republier l'application : les deux fiches de magasin y
-sont des liens à changer, pas une version à soumettre.
+L'invitation donne directement les deux fiches de magasin, App Store et
+Google Play : le destinataire clique sur celle de son téléphone. Le lien
+Google Play porte le code du parrain dans son référent d'installation ; l'App
+Store ne transmet rien, d'où le code à saisir dans les Réglages sur iPhone.
 
 ### Jeton push — un appareil, un compte
 
