@@ -37,3 +37,6 @@ verify_jwt = false
 
 [functions.villes-voisines]
 verify_jwt = false
+
+[functions.prevenir-voisines]
+verify_jwt = false
