@@ -76,10 +76,14 @@ interface Lot {
   en_attente?: number;
   erreur: string | null;
   sautees: string[];
+  /** Rien créé faute de source neuve : la ville est à court, pas le lot en défaut. */
+  epuisee?: boolean;
 }
 
 interface Controle {
   lots: Lot[];
+  /** Villes que le réassort laisse en paix, et le jour où il les retentera. */
+  epuisees?: Array<{ ville: string; reprise: string }>;
   corrigees: number;
   abandonnees: Array<{ ville: string; titre: string; motif: string }>;
   en_correction: number;
@@ -161,10 +165,12 @@ function enDefaut(l: Lot): boolean {
 /** Le symbole d'un lot : en cours tant que des sujets attendent d'être rédigés. */
 function etat(l: Lot): string {
   if ((l.en_attente ?? 0) > 0 && !l.erreur) return '⏳';
+  if (l.epuisee) return '∅';
   return enDefaut(l) ? '⚠' : '✓';
 }
 
 function suiteLot(l: Lot): string {
+  if (l.epuisee) return ' : plus aucune source neuve, ville épuisée';
   const n = l.en_attente ?? 0;
   return n > 0 ? `, ${n} en rédaction` : '';
 }
@@ -315,6 +321,9 @@ function corps(r: Rapport, c: Controle | null, s: Suivi | null, solde: Solde | n
     if (c.abandonnees.length > 0) {
       lignes.push(`  ✗ ${c.abandonnees.length} ${accord(c.abandonnees.length, 'rejetée', 'rejetées')} après 3 corrections.`);
     }
+    for (const e of c.epuisees ?? []) {
+      lignes.push(`  ∅ ${e.ville} épuisée : réassort en pause jusqu'au ${jourLisible(e.reprise)}, voisines si le lecteur accepte.`);
+    }
   }
 
   if (suivi.relire.length > 0) {
@@ -447,6 +456,14 @@ function corps(r: Rapport, c: Controle | null, s: Suivi | null, solde: Solde | n
           )} après 3 corrections.</div>`
         : ''
     }
+    ${(c.epuisees ?? [])
+      .map(
+        (e) =>
+          `<div style="font-size:13px;color:#666;margin-top:6px">∅ <strong>${echapper(
+            e.ville
+          )}</strong> épuisée : réassort en pause jusqu'au ${jourLisible(e.reprise)}, voisines si le lecteur accepte.</div>`
+      )
+      .join('')}
   </div>`
     : '';
 
