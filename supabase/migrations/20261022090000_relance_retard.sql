@@ -7,6 +7,8 @@
 --   2. Une relance par retard : il faut une lecture postérieure à la
 --      précédente relance pour qu'un nouveau retard en déclenche une autre.
 --   3. Seulement les comptes qui ont une adresse email.
+--   4. Seulement les retards récents (5 à 9) : un compte inactif depuis des
+--      semaines ne reçoit rien, le passage quotidien attrape les autres à 5.
 
 alter table public.profiles
   add column if not exists relance_retard_at timestamptz;
@@ -34,7 +36,7 @@ as $$
     from serie s
     join public.profiles p on p.id = s.user_id
     join auth.users u on u.id = p.id
-   where s.non_lues >= 5
+   where s.non_lues between 5 and 9
      and u.email is not null
      and p.city is not null
      and (
