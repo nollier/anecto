@@ -567,7 +567,24 @@ function corps(r: Rapport, c: Controle | null, s: Suivi | null, solde: Solde | n
   return { texte: lignes.join('\n'), html };
 }
 
-const client = () => createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+// Depuis le 23 octobre, la base refuse parfois la clé de service : 401,
+// « JWT issued at future » (PGRST303), un décalage d'horloge côté Supabase.
+// Un appel sur dix à vingt, au hasard. Les tâches du quart d'heure s'en
+// remettent au passage suivant ; le rapport, lancé une fois par jour, était
+// perdu (25 et 26 octobre). Quelques secondes plus tard, l'appel passe.
+const ATTENTES_REPRISE_MS = [3000, 10000];
+
+const fetchAvecReprise: typeof fetch = async (input, init) => {
+  for (let essai = 0; ; essai++) {
+    const res = await fetch(input, init);
+    if (res.status !== 401 || essai >= ATTENTES_REPRISE_MS.length) return res;
+    if (!(await res.clone().text()).includes('PGRST303')) return res;
+    console.warn(`JWT « issued at future », nouvel essai dans ${ATTENTES_REPRISE_MS[essai] / 1000} s`);
+    await new Promise((r) => setTimeout(r, ATTENTES_REPRISE_MS[essai]));
+  }
+};
+
+const client = () => createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { global: { fetch: fetchAvecReprise } });
 type Db = ReturnType<typeof client>;
 
 /** Le suivi, liens de relecture signés. S'il échoue, le rapport part sans lui. */
