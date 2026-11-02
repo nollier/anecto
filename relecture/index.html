@@ -71,6 +71,7 @@
   button { font: inherit; font-weight: 700; border: 0; border-radius: 6px; padding: 12px 20px; cursor: pointer; }
   .valider { background: var(--vert); color: #fff; }
   .rejeter { background: transparent; color: var(--brique); border: 1px solid var(--brique); }
+  .reecrire { background: transparent; color: var(--grave); border: 1px solid var(--grave); }
   button:disabled { opacity: 0.5; cursor: default; }
   .etat { margin-top: 1.5rem; font-weight: 700; }
   .meta { font-size: 0.875rem; color: var(--grave); }
@@ -107,7 +108,7 @@
     contenu.replaceChildren(el('p', { class: 'etat' }, message));
   }
 
-  async function charger() {
+  async function charger(message = '') {
     if (!lien.id || !lien.sig) return erreur('Lien incomplet.');
     const { statut, corps } = await appeler('lire');
     if (statut !== 200) return erreur(corps.error || 'Lien invalide ou expiré.');
@@ -120,18 +121,41 @@
       el('ul', {}, ...(a.problemes || []).map((p) => el('li', {}, p))));
     const notes = el('div', { class: 'bloc' }, el('h2', {}, 'Citations vérifiées dans la source'), el('pre', {}, a.verification_notes || ''));
 
-    const etat = el('p', { class: 'etat' });
+    const etat = el('p', { class: 'etat' }, message);
     const valider = el('button', { class: 'valider', type: 'button' }, 'Publier');
     const rejeter = el('button', { class: 'rejeter', type: 'button' }, 'Rejeter');
+    const reecrire = el('button', { class: 'reecrire', type: 'button' }, 'Réécrire selon le vérificateur');
+    const boutons = [valider, rejeter, reecrire];
+    const bloquer = (oui) => boutons.forEach((b) => { b.disabled = oui; });
     const decider = async (action) => {
-      valider.disabled = rejeter.disabled = true;
+      bloquer(true);
       const r = await appeler(action);
       if (r.statut === 200) etat.textContent = r.corps.status === 'validated' ? 'Publiée.' : 'Rejetée.';
       else if (r.statut === 409) etat.textContent = 'Déjà traitée.';
-      else { etat.textContent = r.corps.error || 'Échec.'; valider.disabled = rejeter.disabled = false; }
+      else { etat.textContent = r.corps.error || 'Échec.'; bloquer(false); }
+    };
+    const demanderReecriture = async () => {
+      bloquer(true);
+      etat.textContent = 'Réécriture en cours, une à deux minutes. Garde la page ouverte.';
+      const r = await appeler('reecrire').catch(() => ({ statut: 0, corps: {} }));
+      if (r.statut === 200 && r.corps.issue === 'publiable') {
+        etat.textContent = 'Réécrite et confirmée par le vérificateur : publiée.';
+      } else if (r.statut === 200 && r.corps.issue === 'a_relire') {
+        // La nouvelle version remplace l'ancienne : on la recharge pour la juger.
+        await charger('Nouvelle version ci-dessus. Le vérificateur doute encore : publie, rejette ou réécris à nouveau.');
+      } else if (r.statut === 200) {
+        etat.textContent = `Réécriture non retenue, version d'origine conservée. ${r.corps.motif || ''}`;
+        bloquer(false);
+      } else if (r.statut === 409) {
+        etat.textContent = 'Déjà traitée.';
+      } else {
+        etat.textContent = r.corps.error || 'Échec de la réécriture.';
+        bloquer(false);
+      }
     };
     valider.addEventListener('click', () => decider('valider'));
     rejeter.addEventListener('click', () => decider('rejeter'));
+    reecrire.addEventListener('click', demanderReecriture);
 
     const enAttente = a.status === 'draft' && a.a_relire;
     contenu.replaceChildren(
@@ -142,7 +166,7 @@
       reproches,
       sources,
       notes,
-      enAttente ? el('div', { class: 'actions' }, valider, rejeter) : el('p', { class: 'etat' }, 'Déjà traitée.'),
+      enAttente ? el('div', { class: 'actions' }, valider, rejeter, reecrire) : el('p', { class: 'etat' }, 'Déjà traitée.'),
       etat
     );
   }

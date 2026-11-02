@@ -6,9 +6,11 @@
 // Le rapport du matin en donne la liste, avec un lien signé par anecdote vers
 // la page `relecture/` du site, qui appelle cette fonction.
 //
-// Trois actions, toutes en POST : `lire` rend le texte, la source et ce que
+// Quatre actions, toutes en POST : `lire` rend le texte, la source et ce que
 // le vérificateur reproche ; `valider` la publie ; `rejeter` l'écarte avec un
-// motif. Pas de GET qui agisse : les messageries ouvrent les liens d'un email
+// motif ; `reecrire` demande à `generate-anecdote` une réécriture qui lève
+// ces reproches (publiée si elle convainc le vérificateur, sinon gardée en
+// relecture). Pas de GET qui agisse : les messageries ouvrent les liens d'un email
 // pour les analyser, et un clic fantôme ne doit rien publier.
 
 import { createClient } from 'npm:@supabase/supabase-js@^2';
@@ -94,6 +96,21 @@ Deno.serve(async (req) => {
       motif: 'Rejetée en relecture humaine.',
     });
     return json({ status: 'rejected' });
+  }
+
+  if (action === 'reecrire') {
+    // Une à deux minutes : réécriture, allongement éventuel, vérification.
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/generate-anecdote`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+        'x-anecto-admin-secret': ADMIN_SECRET,
+      },
+      body: JSON.stringify({ mode: 'reecrire', id }),
+    });
+    const corps = await res.json().catch(() => ({ error: `Réponse illisible (${res.status}).` }));
+    return json(corps, res.ok ? 200 : res.status);
   }
 
   return fail('Action inconnue.');
