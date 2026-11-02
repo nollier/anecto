@@ -938,6 +938,88 @@ interface BilanCorrection {
   motif: string;
 }
 
+type Reecriture =
+  | { ok: false; motif: string }
+  | {
+      ok: true;
+      clean: Redaction;
+      verification: Verification;
+      qualite: Qualite;
+      citations: string[];
+      sources: Array<{ url: string; titre: string; editeur: string }>;
+    };
+
+/**
+ * Une réécriture complète, sans rien enregistrer : le modèle corrige la
+ * liste de problèmes, puis tout est recontrôlé (format, citations dans la
+ * source, vérificateur, rédaction). Partagée par la boucle de correction et
+ * par le bouton « Réécrire » de la relecture humaine.
+ */
+async function reecrire(
+  apiKey: string,
+  axe: Axe,
+  city: string,
+  actuelle: Pick<Redaction, 'titre' | 'accroche' | 'corps' | 'periode'>,
+  problemes: string[],
+  docs: SourceDoc[]
+): Promise<Reecriture> {
+  let redaction: Redaction;
+  try {
+    redaction = await chatJSON<Redaction>({
+      apiKey,
+      system: redactionSystem(axe),
+      user: correctionPrompt(city, actuelle, problemes, docs),
+      temperature: 0.3,
+      maxTokens: 3000,
+      etape: 'correction',
+      ville: city,
+    });
+  } catch (err) {
+    return { ok: false, motif: `Réécriture impossible : ${err instanceof Error ? err.message : String(err)}` };
+  }
+
+  if (!redaction?.trouve) {
+    return { ok: false, motif: `Le modèle renonce : ${redaction?.raison || 'aucune raison donnée'}` };
+  }
+
+  let clean: Redaction = {
+    ...redaction,
+    titre: String(redaction.titre ?? '').trim(),
+    accroche: String(redaction.accroche ?? '').trim(),
+    corps: String(redaction.corps ?? '').trim(),
+    periode: String(redaction.periode ?? '').trim(),
+  };
+
+  // Même dérive qu'à la génération : la réécriture raccourcit, et le
+  // contrôle de rédaction la recale pour quelques mots (« 296 mots, attendu
+  // entre 300 et 430 »). Une passe d'allongement avant de conclure.
+  clean = neutraliser(await ajuster(apiKey, axe, city, clean, docs));
+
+  if (clean.corps.length < MIN_BODY_CHARS || clean.corps.length > MAX_BODY_CHARS) {
+    return { ok: false, motif: `Corps réécrit hors format : ${clean.corps.length} caractères.` };
+  }
+  if (!clean.accroche || clean.accroche.length > MAX_ACCROCHE_CHARS || !clean.titre) {
+    return { ok: false, motif: 'Titre ou accroche réécrits absents ou trop longs.' };
+  }
+
+  const controle = controler(clean, docs.map((d) => d.extract).join('\n\n'));
+  if (!controle.ok) {
+    return { ok: false, motif: `Réécriture non sourcée : ${controle.reason}` };
+  }
+
+  let verification: Verification;
+  try {
+    verification = await verifier(apiKey, city, clean, docs);
+  } catch (err) {
+    return { ok: false, motif: `Vérification impossible : ${err instanceof Error ? err.message : String(err)}` };
+  }
+
+  const qualite = controlerRedaction(clean);
+  const retenus = crediter(docs, controle.citationsValides);
+  const sources = retenus.map((doc) => ({ url: doc.url, titre: doc.title, editeur: doc.editeur }));
+  return { ok: true, clean, verification, qualite, citations: controle.citationsValides, sources };
+}
+
 async function corrigerBrouillon(
   apiKey: string,
   supabase: Db,
@@ -1035,64 +1117,14 @@ async function corrigerBrouillon(
     }
   }
 
-  let redaction: Redaction;
-  try {
-    redaction = await chatJSON<Redaction>({
-      apiKey,
-      system: redactionSystem(axe),
-      user: correctionPrompt(b.city, actuelle, problemes, docs),
-      temperature: 0.3,
-      maxTokens: 3000,
-      etape: 'correction',
-      ville: b.city,
-    });
-  } catch (err) {
-    return echouer(`Réécriture impossible : ${err instanceof Error ? err.message : String(err)}`);
-  }
+  const r = await reecrire(apiKey, axe, b.city, actuelle, problemes, docs);
+  if (!r.ok) return echouer(r.motif);
+  const { clean, verification, qualite, citations, sources } = r;
 
-  if (!redaction?.trouve) {
-    return echouer(`Le modèle renonce : ${redaction?.raison || 'aucune raison donnée'}`);
-  }
-
-  let clean: Redaction = {
-    ...redaction,
-    titre: String(redaction.titre ?? '').trim(),
-    accroche: String(redaction.accroche ?? '').trim(),
-    corps: String(redaction.corps ?? '').trim(),
-    periode: String(redaction.periode ?? '').trim(),
-  };
-
-  // Même dérive qu'à la génération : la réécriture raccourcit, et le
-  // contrôle de rédaction la recale pour quelques mots (« 296 mots, attendu
-  // entre 300 et 430 »). Une passe d'allongement avant de conclure.
-  clean = neutraliser(await ajuster(apiKey, axe, b.city, clean, docs));
-
-  if (clean.corps.length < MIN_BODY_CHARS || clean.corps.length > MAX_BODY_CHARS) {
-    return echouer(`Corps réécrit hors format : ${clean.corps.length} caractères.`);
-  }
-  if (!clean.accroche || clean.accroche.length > MAX_ACCROCHE_CHARS || !clean.titre) {
-    return echouer('Titre ou accroche réécrits absents ou trop longs.');
-  }
-
-  const controle = controler(clean, docs.map((d) => d.extract).join('\n\n'));
-  if (!controle.ok) {
-    return echouer(`Réécriture non sourcée : ${controle.reason}`);
-  }
-
-  let verification: Verification;
-  try {
-    verification = await verifier(apiKey, b.city, clean, docs);
-  } catch (err) {
-    return echouer(`Vérification impossible : ${err instanceof Error ? err.message : String(err)}`);
-  }
-
-  const qualite = controlerRedaction(clean);
   const publiable = estPubliable(verification, qualite);
   const restants = problemesDe(verification, qualite);
   const aRelire = !publiable && tentative >= MAX_CORRECTIONS && relisible(verification.verdict, qualite.ok, restants);
   const abandon = !publiable && !aRelire && tentative >= MAX_CORRECTIONS;
-  const retenus = crediter(docs, controle.citationsValides);
-  const sources = retenus.map((doc) => ({ url: doc.url, titre: doc.title, editeur: doc.editeur }));
 
   const miseAJour = {
     title: clean.titre,
@@ -1104,7 +1136,7 @@ async function corrigerBrouillon(
     sources,
     verdict: verification.verdict,
     confidence: verification.confiance,
-    verification_notes: notesDe(verification, controle.citationsValides, tentative),
+    verification_notes: notesDe(verification, citations, tentative),
     qualite_ok: qualite.ok,
     qualite_problemes: qualite.problemes,
     problemes: restants,
@@ -1477,6 +1509,116 @@ async function poursuivre(
   return { status: 200, body: { plans, rediges } };
 }
 
+// -------------------------------------------------- réécriture à la demande
+
+/**
+ * Le bouton « Réécrire » de la page de relecture : le relecteur demande une
+ * réécriture qui tienne compte de ce que le vérificateur reproche.
+ *
+ * Une seule passe, contrôlée comme une correction. L'issue :
+ * - publiable : la nouvelle version remplace l'ancienne et part en ligne,
+ *   puisque le relecteur a demandé cette réécriture pour la publier ;
+ * - encore un simple doute : la nouvelle version remplace l'ancienne et
+ *   reste en relecture, le relecteur la juge sur pièce ;
+ * - pire (réfutée, faute, citation introuvable, modèle qui renonce) : rien
+ *   n'est enregistré, la version d'origine reste en relecture. Ce n'est pas
+ *   à une réécriture ratée de faire rejeter un texte que l'humain voulait
+ *   sauver.
+ */
+async function reecrireEnRelecture(
+  apiKey: string,
+  supabase: Db,
+  id: string
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const { data, error } = await supabase
+    .from('anecdotes')
+    .select(
+      'id, city, city_place_id, title, hook, body, period, sources, verdict, confidence, problemes, qualite_ok, corrections, generated_by, verification_notes, status, a_relire'
+    )
+    .eq('id', id)
+    .maybeSingle();
+  if (error) return { status: 500, body: { error: error.message } };
+  if (!data) return { status: 404, body: { error: 'Anecdote introuvable.' } };
+  if (data.status !== 'draft' || !data.a_relire) {
+    return { status: 409, body: { deja: true, status: data.status } };
+  }
+  const b = data as Brouillon;
+  const tentative = b.corrections + 1;
+  const avant = {
+    titre: b.title,
+    verdict: b.verdict,
+    confiance: b.confidence,
+    qualite_ok: b.qualite_ok,
+    problemes: b.problemes,
+  };
+  const journal = (issue: Issue, motif: string, apres: unknown = null) =>
+    supabase.from('corrections_anecdote').insert({ anecdote_id: b.id, tentative, issue, motif, avant, apres });
+
+  const garder = async (motif: string) => {
+    await journal('echec', `Réécriture demandée en relecture : ${motif}`);
+    return { status: 200, body: { issue: 'echec', motif } };
+  };
+
+  const docs = await dossierDe(supabase, b);
+  if (docs.length === 0) return garder('sources introuvables, aucun document crédité ne se relit.');
+
+  const problemes = (b.problemes ?? []).length > 0
+    ? b.problemes!
+    : ['Le vérificateur doute de certaines affirmations : ne garde que ce que le dossier établit explicitement.'];
+  const actuelle = { titre: b.title, accroche: b.hook ?? '', corps: b.body, periode: b.period ?? '' };
+
+  const r = await reecrire(apiKey, axeDeLibelle(b.generated_by), b.city, actuelle, problemes, docs);
+  if (!r.ok) return garder(r.motif);
+  const { clean, verification, qualite, citations, sources } = r;
+
+  const publiable = estPubliable(verification, qualite);
+  const restants = problemesDe(verification, qualite);
+  if (!publiable && !relisible(verification.verdict, qualite.ok, restants)) {
+    return garder(`nouvelle version moins sûre que l'originale (${restants.join(' ; ')}).`);
+  }
+
+  const miseAJour = {
+    title: clean.titre,
+    hook: clean.accroche,
+    body: clean.corps,
+    period: clean.periode || null,
+    source: sources.map((s) => `${s.editeur} — ${s.titre}`).join(' ; '),
+    source_url: sources[0].url,
+    sources,
+    verdict: verification.verdict,
+    confidence: verification.confiance,
+    verification_notes: notesDe(verification, citations, tentative),
+    qualite_ok: qualite.ok,
+    qualite_problemes: qualite.problemes,
+    problemes: restants,
+    corrections: tentative,
+    ...(publiable ? { status: 'validated', a_relire: false } : {}),
+  };
+
+  // Le filtre sur l'état protège d'un clic « Publier » ou « Rejeter » arrivé
+  // pendant la réécriture : sa décision l'emporte.
+  const enregistrer = (m: typeof miseAJour) =>
+    supabase.from('anecdotes').update(m).eq('id', b.id).eq('status', 'draft').eq('a_relire', true).select('id');
+  let { data: maj, error: e } = await enregistrer(miseAJour);
+  // 23505 : le nouveau titre existe déjà dans la ville. On garde l'ancien.
+  if (e?.code === '23505') ({ data: maj, error: e } = await enregistrer({ ...miseAJour, title: b.title }));
+  if (e) return garder(`enregistrement impossible : ${e.message}`);
+  if (!maj || maj.length === 0) return { status: 409, body: { deja: true } };
+
+  const issue: Issue = publiable ? 'publiable' : 'a_relire';
+  const motif = publiable
+    ? 'Réécrite en relecture : verdict confirmé, publiée.'
+    : `Réécrite en relecture, doute restant : ${restants.join(' ; ')}`;
+  await journal(issue, motif, {
+    titre: clean.titre,
+    verdict: verification.verdict,
+    confiance: verification.confiance,
+    qualite_ok: qualite.ok,
+    problemes: restants,
+  });
+  return { status: 200, body: { issue, motif } };
+}
+
 // -------------------------------------------------------------------- HTTP
 
 Deno.serve(async (req) => {
@@ -1535,6 +1677,15 @@ Deno.serve(async (req) => {
         erreur: (reponse.error as string) ?? null,
       });
     }
+    return json(reponse, status);
+  }
+
+  if (body.mode === 'reecrire') {
+    const id = typeof body.id === 'string' ? body.id : '';
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+      return fail('Paramètre `id` invalide.');
+    }
+    const { status, body: reponse } = await reecrireEnRelecture(DEEPSEEK_API_KEY, supabase, id);
     return json(reponse, status);
   }
 
