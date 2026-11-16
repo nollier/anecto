@@ -14,7 +14,7 @@ import { supabase } from './src/lib/supabase';
 import { syncPushToken } from './src/lib/notifications';
 import { declarerProvenance } from './src/lib/provenance';
 import { noter } from './src/lib/mesure';
-import { doitDemanderConnuPar } from './src/lib/connuPar';
+import { doitDemanderConnuPar, signalerQuestionConnuPar } from './src/lib/connuPar';
 import ConnuPar from './src/components/ConnuPar';
 import HomeScreen from './src/screens/HomeScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
@@ -132,7 +132,10 @@ export default function App() {
     declarerProvenance(userId);
     // Et, pour un compte qui vient d'être créé, la question qui complète ce
     // que le magasin ne dit pas : « Comment as-tu connu Anecto ? ».
-    doitDemanderConnuPar(session!.user).then(setQuestionConnuPar);
+    doitDemanderConnuPar(session!.user).then((poser) => {
+      signalerQuestionConnuPar(poser ? 'ouverte' : 'reglee');
+      setQuestionConnuPar(poser);
+    });
   }, [session]);
 
   // Un tap sur la notification doit ouvrir l'anecdote, pas l'onglet où
@@ -195,7 +198,13 @@ export default function App() {
         <Tab.Screen name="Réglages" component={SettingsScreen} />
       </Tab.Navigator>
       {questionConnuPar && (
-        <ConnuPar userId={session.user.id} onFerme={() => setQuestionConnuPar(false)} />
+        <ConnuPar
+          userId={session.user.id}
+          onFerme={() => {
+            setQuestionConnuPar(false);
+            signalerQuestionConnuPar('reglee');
+          }}
+        />
       )}
     </NavigationContainer>
   );

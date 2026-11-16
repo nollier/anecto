@@ -104,3 +104,27 @@ export async function oublierConnuParEnAttente(userId: string): Promise<void> {
     // Sans gravité : la prochaine écriture du même contenu ne change rien.
   }
 }
+
+/**
+ * Où en est la question à l'ouverture de l'app : pas encore décidé, affichée,
+ * ou réglée (posée, passée ou sans objet). L'accueil attend « réglée » avant
+ * de proposer les notifications : iOS n'affiche pas deux fenêtres modales à
+ * la fois, et deux questions d'affilée feraient beaucoup.
+ */
+type EtatQuestion = 'inconnu' | 'ouverte' | 'reglee';
+let etatQuestion: EtatQuestion = 'inconnu';
+const enAttente = new Set<() => void>();
+
+export function signalerQuestionConnuPar(etat: 'ouverte' | 'reglee'): void {
+  etatQuestion = etat;
+  if (etat === 'reglee') {
+    enAttente.forEach((f) => f());
+    enAttente.clear();
+  }
+}
+
+/** Se résout quand la question « Comment as-tu connu Anecto ? » ne gêne plus. */
+export function attendreQuestionConnuPar(): Promise<void> {
+  if (etatQuestion === 'reglee') return Promise.resolve();
+  return new Promise((resolve) => enAttente.add(resolve));
+}

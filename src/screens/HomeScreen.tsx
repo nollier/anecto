@@ -22,6 +22,7 @@ import { Anecdote, Statistiques, Voisinage } from '../types';
 import { chargerVoisinage, libelleVoisine, proposerVoisines, repondreVoisines } from '../lib/voisinage';
 import DemandeNotifications from '../components/DemandeNotifications';
 import { doitProposerNotifications } from '../lib/demandeNotifications';
+import { attendreQuestionConnuPar } from '../lib/connuPar';
 import { QuestionQuiz, ResultatQuiz, PartageResultatQuiz } from '../components/Quiz';
 import { EtatQuiz, chargerEtatQuiz, passerQuiz, repondreQuiz } from '../lib/quiz';
 import { noter } from '../lib/mesure';
@@ -97,6 +98,9 @@ function libelleSerie(stats: Statistiques): string {
   return stats.serie >= stats.record ? `${base} · ton record 🎉` : base;
 }
 
+/** Temps passé sur une anecdote affichée en entier, sans défilement, pour la tenir pour lue. */
+const DUREE_LECTURE_SANS_DEFILEMENT_MS = 20_000;
+
 export default function HomeScreen() {
   const navigation = useNavigation<any>();
   const [anecdote, setAnecdote] = useState<Anecdote | null>(null);
@@ -113,12 +117,44 @@ export default function HomeScreen() {
   // l'anecdote en entier.
   const finDuTexte = useRef<number | null>(null);
   const luEnEntier = useRef<string | null>(null);
+  // Hauteur visible de l'écran défilant : si la source y tient déjà, il n'y
+  // aura pas de défilement pour constater la lecture.
+  const hauteurVisible = useRef<number | null>(null);
+  const minuterieLecture = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function lectureComplete() {
-    if (!anecdote || !userId || luEnEntier.current === anecdote.id) return;
+    if (!anecdote || !userId || quiz.phase === 'question' || luEnEntier.current === anecdote.id) return;
     luEnEntier.current = anecdote.id;
+    // Jamais par-dessus « Comment as-tu connu Anecto ? ».
+    await attendreQuestionConnuPar();
     if (await doitProposerNotifications(userId)) setDemandeNotif(true);
   }
+
+  function annulerMinuterieLecture() {
+    if (minuterieLecture.current) clearTimeout(minuterieLecture.current);
+    minuterieLecture.current = null;
+  }
+
+  /**
+   * Anecdote entièrement visible sans défilement (grand écran, texte court) :
+   * aucun `onScroll` ne viendra. On considère alors l'anecdote lue après un
+   * temps de lecture raisonnable passé sur l'écran, et non dès l'affichage,
+   * pour ne pas solliciter quelqu'un qui n'a encore rien lu.
+   */
+  function verifierSourceVisible() {
+    if (minuterieLecture.current || !anecdote || luEnEntier.current === anecdote.id) return;
+    if (quiz.phase === 'question') return;
+    if (finDuTexte.current === null || hauteurVisible.current === null) return;
+    if (finDuTexte.current > hauteurVisible.current) return;
+    minuterieLecture.current = setTimeout(() => {
+      minuterieLecture.current = null;
+      lectureComplete();
+    }, DUREE_LECTURE_SANS_DEFILEMENT_MS);
+  }
+
+  // Changer d'anecdote, passer au quiz ou quitter l'onglet arrête l'attente.
+  useEffect(() => annulerMinuterieLecture, [anecdote?.id, quiz.phase]);
+  useFocusEffect(useCallback(() => annulerMinuterieLecture, []));
 
   function surDefilement(e: NativeSyntheticEvent<NativeScrollEvent>) {
     const { contentOffset, layoutMeasurement } = e.nativeEvent;
@@ -320,6 +356,10 @@ export default function HomeScreen() {
       keyboardDismissMode="interactive"
       onScroll={surDefilement}
       scrollEventThrottle={250}
+      onLayout={(e: LayoutChangeEvent) => {
+        hauteurVisible.current = e.nativeEvent.layout.height;
+        verifierSourceVisible();
+      }}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadTodayAnecdote(); }} />
       }
@@ -402,6 +442,7 @@ export default function HomeScreen() {
           lecteur, au lieu d'être une promesse à croire sur parole. */}
       <View onLayout={(e: LayoutChangeEvent) => {
         finDuTexte.current = e.nativeEvent.layout.y + e.nativeEvent.layout.height;
+        verifierSourceVisible();
       }}>
         {anecdote.source_url ? (
           <TouchableOpacity onPress={ouvrirSource} accessibilityRole="link">
