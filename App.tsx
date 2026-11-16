@@ -14,6 +14,8 @@ import { supabase } from './src/lib/supabase';
 import { syncPushToken } from './src/lib/notifications';
 import { declarerProvenance } from './src/lib/provenance';
 import { noter } from './src/lib/mesure';
+import { doitDemanderConnuPar } from './src/lib/connuPar';
+import ConnuPar from './src/components/ConnuPar';
 import HomeScreen from './src/screens/HomeScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import HistoryScreen from './src/screens/HistoryScreen';
@@ -101,6 +103,7 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const dernierJetonSynchronise = useRef<string | null>(null);
+  const [questionConnuPar, setQuestionConnuPar] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -127,6 +130,9 @@ export default function App() {
     syncPushToken();
     // Une fois par compte : le canal par lequel le lecteur est arrivé.
     declarerProvenance(userId);
+    // Et, pour un compte qui vient d'être créé, la question qui complète ce
+    // que le magasin ne dit pas : « Comment as-tu connu Anecto ? ».
+    doitDemanderConnuPar(session!.user).then(setQuestionConnuPar);
   }, [session]);
 
   // Un tap sur la notification doit ouvrir l'anecdote, pas l'onglet où
@@ -188,6 +194,9 @@ export default function App() {
         <Tab.Screen name="Historique" component={OngletHistorique} />
         <Tab.Screen name="Réglages" component={SettingsScreen} />
       </Tab.Navigator>
+      {questionConnuPar && (
+        <ConnuPar userId={session.user.id} onFerme={() => setQuestionConnuPar(false)} />
+      )}
     </NavigationContainer>
   );
 }
