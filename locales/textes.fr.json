@@ -2,7 +2,7 @@
   "demandeNotif.titre": "Recevoir ton anecdote chaque matin ?",
   "demandeNotif.texte": "Une petite notification par jour, à l'heure que tu as choisie, pour ne jamais manquer une histoire sur {ville}. Rien d'autre.",
   "demandeNotif.texteSansVille": "Une petite notification par jour, à l'heure que tu as choisie, pour ne jamais manquer une histoire. Rien d'autre.",
-  "demandeNotif.oui": "Oui, je veux la recevoir",
+  "demandeNotif.oui": "Continuer",
   "demandeNotif.reglages": "Ouvrir les réglages du téléphone",
   "demandeNotif.aideReglages": "Les notifications sont coupées pour Anecto. Active-les dans les réglages du téléphone, puis reviens ici.",
   "demandeNotif.non": "Pas maintenant",
