@@ -33,7 +33,6 @@
   "quiz.rate": "Raté !",
   "quiz.laReponse": "C'était {reponse}. L'histoire ci-dessous t'explique pourquoi.",
   "quiz.serie": "{serie} bonnes réponses d'affilée",
-  "quiz.bonnes": "{bonnes} bonne(s) réponse(s) au total",
   "quiz.partagerTitre": "Défie un proche",
   "quiz.partagerBouton": "Partager mon résultat",
   "quiz.partageTrouve": "Anecto, {ville}, {date} : j'ai trouvé ✅ Et toi, vrai ou faux ?",
