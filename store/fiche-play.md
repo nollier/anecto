@@ -124,6 +124,13 @@ un tiers pour son propre usage). Ici tout est collecté, rien n'est partagé.
 | Jeton de notification | Identifiants → ID de l'appareil | Fonctionnalité de l'app | Non |
 | Historique de lecture | Activité dans l'application → Autre | Fonctionnalité de l'app | Oui |
 | Contributions écrites | Contenu généré → Autre | Fonctionnalité de l'app | Non |
+| Mesures d'usage (ouvertures depuis une notification, quiz, partages, demande de notifications) | Activité dans l'application → Interactions avec l'application | Analyse | Oui |
+| Réponses au « Vrai ou faux ? » | Activité dans l'application → Interactions avec l'application | Fonctionnalité de l'app, Analyse | Non |
+| « Comment as-tu connu Anecto ? » | Activité dans l'application → Autres actions | Analyse | Non |
+
+Depuis la 1.2.0, les trois dernières lignes sont à ajouter dans le
+formulaire : liées au compte, collectées, non partagées, effacées à la
+suppression du compte.
 
 À cocher également :
 

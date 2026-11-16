@@ -193,3 +193,19 @@ ce champ, et un examinateur clique dessus.
 
 L'URL marketing peut rester vide tant qu'elle pointerait sur la même page :
 deux liens identiques n'apportent rien à personne.
+
+## Confidentialité de l'app (App Privacy) — à ajouter pour la 1.2.0
+
+Dans App Store Connect, App Privacy, ajouter :
+
+- **Usage Data → Product Interaction** : ouvertures depuis une notification,
+  quiz affiché, répondu, passé ou partagé, partages proposés, lancés ou
+  aboutis, réponse à la demande de notifications, réponse à « Comment as-tu
+  connu Anecto ? ».
+  - Liée à l'identité de l'utilisateur : **oui** (rattachée au compte).
+  - Utilisée pour le pistage (tracking) : **non**.
+  - Finalité : **Analytics**. Les réponses au quiz servent aussi au score
+    affiché : cocher également **App Functionality**.
+
+Rien n'est partagé avec des tiers, tout est hébergé chez Supabase (UE) et
+effacé à la suppression du compte.
