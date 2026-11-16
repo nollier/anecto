@@ -51,9 +51,13 @@ stable
 security definer
 set search_path = public
 as $$
+  -- `rows` et non le cadre par défaut : deux réponses de même horodatage ne
+  -- doivent pas tomber dans le même groupe (trouvé en test : la série restait
+  -- à 1 après une erreur).
   with r as (
-    select juste, repondu_at,
-           count(*) filter (where not juste) over (order by repondu_at) as groupe
+    select juste,
+           count(*) filter (where not juste)
+             over (order by repondu_at, anecdote_id rows between unbounded preceding and current row) as groupe
       from public.quiz_reponses
      where user_id = auth.uid()
   ),
@@ -61,7 +65,7 @@ as $$
   select
     (select count(*)::int from r),
     (select count(*) filter (where juste)::int from r),
-    (select count(*) filter (where juste)::int from r, dernier where r.groupe = dernier.g),
+    coalesce((select count(*) filter (where juste)::int from r, dernier where r.groupe = dernier.g), 0),
     coalesce((select max(n) from (select count(*) filter (where juste)::int as n from r group by groupe) s), 0);
 $$;
 
