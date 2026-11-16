@@ -1,10 +1,9 @@
--- Lot 1 des « Vrai ou faux ? » : 93 affirmations, 19 villes.
+-- Lot 1 des « Vrai ou faux ? » : 87 affirmations, 19 villes.
 -- À coller dans le SQL Editor de Supabase. Ne touche que les anecdotes sans quiz.
 update public.anecdotes a
    set quiz_affirmation = v.affirmation, quiz_reponse = v.reponse
   from (values
     ('048924f0-80eb-4867-bc5e-a51bcec8c4f0'::uuid, 'Victor Hugo a visité la crypte des momies de Saint-Michel.', true),
-    ('98f63d25-f8cf-49d6-987e-1e57d74dd84a'::uuid, 'La flèche de Saint-Michel a été emportée par un incendie en 1768.', false),
     ('7d405c00-4b56-43ab-acd6-7077141a9d3b'::uuid, 'Selon la légende, Charlemagne a déposé le cor de Roland sur l''autel de Saint-Seurin.', true),
     ('e069c749-2c1d-4e71-8ba9-2dbb72566e7a'::uuid, 'Le réservoir de pierre près de la gare Saint-Jean a été construit au XXe siècle.', false),
     ('2ee6419a-9b14-458f-b1b0-3414eba3e796'::uuid, 'Deux tours du fort du Hâ se dressent encore dans la cour du palais de justice.', true),
@@ -15,7 +14,6 @@ update public.anecdotes a
     ('92a76b01-3e8c-4deb-b74a-3754a00fd6b0'::uuid, 'Le « Bitter Sécrestat » était fabriqué à base de noix vertes.', false),
     ('c817e998-89eb-4657-9d16-a99dc6c4c51c'::uuid, 'Un hôtel particulier de la rue Labottière possède une réplique presque exacte à New York.', true),
     ('0a17c9f3-ec16-4ac3-bbfd-af7a4dc54b49'::uuid, 'Le cimetière de la Chartreuse est le plus ancien et le plus grand cimetière de Bordeaux.', true),
-    ('7acd5cd1-9308-4e60-9b19-f828cb3c8c73'::uuid, 'Les premières religieuses du cloître de la rue Magendie venaient de Toulouse.', false),
     ('d73dc82b-4d83-42ff-ae19-6ed625f3deab'::uuid, 'Le plus ancien cimetière juif de Bordeaux a été acheté en 1724.', true),
     ('a375181c-50c4-4ec2-93cc-7c2c865a506e'::uuid, 'Le château du Prince Noir, à Talence, aurait d''abord été une prison.', false),
     ('85ed6ac1-1644-4a06-aa9b-79775666bf94'::uuid, 'L''Entrepôt Lainé, aujourd''hui musée d''art contemporain, servait à stocker des denrées coloniales.', true),
@@ -48,13 +46,11 @@ update public.anecdotes a
     ('572ad0ce-65d6-4e85-b4cd-8c316ffbe998'::uuid, 'Le musée d''Orsay occupe un ancien grand magasin.', false),
     ('ce911a25-7ed5-4480-984a-dfb17ce34c32'::uuid, 'Au XIXe siècle, Saint-Chamond était réputée pour ses fabriques de lacets.', true),
     ('1f602de6-201b-4efc-a0ef-96a4f2b2f350'::uuid, 'Le prêtre Alexandre Poncet, né à Saint-Chamond, a fait la Grande Guerre comme aviateur.', false),
-    ('7a3712b9-d316-47f5-a711-18c10fbb59fb'::uuid, 'Le grand-père de James Condamin était boulanger à Saint-Chamond.', false),
     ('f32d3143-d6a3-4659-83b8-65155cfe2b0d'::uuid, 'La maison Desbassayns s''inspire d''un palais de Pondichéry, en Inde.', true),
     ('e9c61eda-6d0e-4759-95d9-d383d9e4b157'::uuid, 'Le pont de l''Étang a d''abord été construit pour les voitures à cheval.', false),
     ('fff51b81-68b5-421a-9b21-7f9bd1ad71a6'::uuid, 'Le maître verrier Guy Lefèvre est né à Madagascar.', true),
     ('365749e3-0bff-4e7f-90b0-01b8166aae76'::uuid, 'L''historien Claude Wanquet est né à La Réunion.', false),
     ('34287c4e-b8d5-4d70-8791-7d113248e75c'::uuid, 'Louis XV a placé lui-même des médailles dans la première pierre de la cathédrale Saint-Louis.', true),
-    ('18201bb1-2c6c-4eaa-85a0-ba7568bb535b'::uuid, 'Les toits des maisons de Versailles pouvaient dépasser la cour de marbre du château.', false),
     ('68cf0897-13b6-4c32-8f3b-1bdee7d6bf16'::uuid, 'La laiterie de la rue Vauban a des colonnes en marbre.', false),
     ('73290856-a062-473b-842d-bb37a9d1e111'::uuid, 'Les fondations de la cathédrale Saint-Louis ont dû être bâties sur un sol spongieux.', true),
     ('6f0bf104-41c0-4327-af10-3c50e6f37b3a'::uuid, 'La cathédrale des Doms abrite une fresque macabre parmi les plus anciennes d''Europe.', true),
@@ -74,8 +70,6 @@ update public.anecdotes a
     ('63bced12-ce39-4e3f-be7a-ae032263754f'::uuid, 'À l''époque où elle était fréquentée, on entrait dans la grotte Cosquer à pied sec.', true),
     ('1742317e-cd2d-4c76-93ce-daf681950f7a'::uuid, 'Nadar a ouvert son studio de la Canebière à l''âge de 25 ans.', false),
     ('98446f04-326c-48ea-977a-541937f4ebbe'::uuid, 'En 1776, l''évêque de Quimper a dénoncé en chaire les loges maçonniques de la ville.', true),
-    ('e2c864f0-ec82-4859-a2b4-24eda16df80a'::uuid, 'Le soubassement de la maison Saint-Jalmes, à Kerguélen, est en brique.', false),
-    ('bc658b09-5d66-4cfe-8fec-99fb02325793'::uuid, 'La maison à l''angle du quai de l''Odet et de la venelle de Kergos date du début du XXe siècle.', true),
     ('9905f8da-630d-4d2b-a1af-8ea4ff17afcb'::uuid, 'Le musée des Beaux-Arts de Lyon occupe un ancien couvent.', true),
     ('6dad2e1b-3a86-44b9-bc69-5011411acd1d'::uuid, 'La basilique Saint-Bonaventure a été entièrement bâtie au XIXe siècle.', false),
     ('02dfe638-50a0-424f-9b0d-ea1253635a4f'::uuid, 'La dernière très grande crue du Rhône à Lyon date de 1856.', true),
