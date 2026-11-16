@@ -10,6 +10,9 @@ import {
   RefreshControl,
   Platform,
   Alert,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
+  LayoutChangeEvent,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
@@ -17,6 +20,8 @@ import AvisAnecdote from '../components/AvisAnecdote';
 import PartageAnecdote from '../components/PartageAnecdote';
 import { Anecdote, Statistiques, Voisinage } from '../types';
 import { chargerVoisinage, libelleVoisine, proposerVoisines, repondreVoisines } from '../lib/voisinage';
+import DemandeNotifications from '../components/DemandeNotifications';
+import { doitProposerNotifications } from '../lib/demandeNotifications';
 
 /** Les trois voisines les plus proches, en toutes lettres : « Ciboure, Urrugne et Guéthary ». */
 function nommerVoisines(v: Voisinage): string {
@@ -97,6 +102,25 @@ export default function HomeScreen() {
   const [stats, setStats] = useState<Statistiques | null>(null);
   const [voisinage, setVoisinage] = useState<Voisinage | null>(null);
   const scrollRef = useRef<ScrollView>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [demandeNotif, setDemandeNotif] = useState(false);
+  // Bas de la source dans le contenu défilant : l'atteindre, c'est avoir lu
+  // l'anecdote en entier.
+  const finDuTexte = useRef<number | null>(null);
+  const luEnEntier = useRef<string | null>(null);
+
+  async function lectureComplete() {
+    if (!anecdote || !userId || luEnEntier.current === anecdote.id) return;
+    luEnEntier.current = anecdote.id;
+    if (await doitProposerNotifications(userId)) setDemandeNotif(true);
+  }
+
+  function surDefilement(e: NativeSyntheticEvent<NativeScrollEvent>) {
+    const { contentOffset, layoutMeasurement } = e.nativeEvent;
+    if (finDuTexte.current !== null && contentOffset.y + layoutMeasurement.height >= finDuTexte.current) {
+      lectureComplete();
+    }
+  }
 
   // Recharge à chaque retour sur l'onglet : changer de ville dans les Réglages
   // doit se voir immédiatement.
@@ -112,6 +136,7 @@ export default function HomeScreen() {
       setLoading(false);
       return;
     }
+    setUserId(userData.user.id);
 
     // Sans ville, l'écran vide doit dire quoi faire plutôt que « rien à lire ».
     const { data: profil } = await supabase
@@ -261,6 +286,8 @@ export default function HomeScreen() {
       // Referme le clavier au glissement : sur un texte long, on veut souvent
       // relire l'anecdote pendant qu'on rédige sa correction.
       keyboardDismissMode="interactive"
+      onScroll={surDefilement}
+      scrollEventThrottle={250}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadTodayAnecdote(); }} />
       }
@@ -331,13 +358,17 @@ export default function HomeScreen() {
 
       {/* La source cliquable est ce qui rend « vérifiée » contrôlable par le
           lecteur, au lieu d'être une promesse à croire sur parole. */}
-      {anecdote.source_url ? (
-        <TouchableOpacity onPress={ouvrirSource} accessibilityRole="link">
-          <Text style={styles.sourceLink}>Source : {anecdote.source} ↗</Text>
-        </TouchableOpacity>
-      ) : (
-        <Text style={styles.source}>Source : {anecdote.source}</Text>
-      )}
+      <View onLayout={(e: LayoutChangeEvent) => {
+        finDuTexte.current = e.nativeEvent.layout.y + e.nativeEvent.layout.height;
+      }}>
+        {anecdote.source_url ? (
+          <TouchableOpacity onPress={ouvrirSource} accessibilityRole="link">
+            <Text style={styles.sourceLink}>Source : {anecdote.source} ↗</Text>
+          </TouchableOpacity>
+        ) : (
+          <Text style={styles.source}>Source : {anecdote.source}</Text>
+        )}
+      </View>
 
       {/* Le partage vient après la source, jamais avant : ce qu'on transmet à
           un proche, c'est l'anecdote et sa preuve, dans cet ordre. */}
@@ -347,6 +378,14 @@ export default function HomeScreen() {
           la relecture depuis l'historique, et n'apparaît que si rien n'a
           encore été dit sur cette anecdote. */}
       <AvisAnecdote anecdote={anecdote} scrollRef={scrollRef} />
+
+      {demandeNotif && userId && (
+        <DemandeNotifications
+          userId={userId}
+          ville={anecdote.city}
+          onFerme={() => setDemandeNotif(false)}
+        />
+      )}
     </ScrollView>
   );
 }

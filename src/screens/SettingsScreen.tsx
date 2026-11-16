@@ -87,7 +87,11 @@ export default function SettingsScreen() {
         return;
       }
 
-      const pushToken = await registerForPushNotificationsAsync();
+      // À la toute première configuration, pas de fenêtre système : elle sera
+      // proposée après la première lecture, précédée d'une explication
+      // (DemandeNotifications). Ensuite, enregistrer ses réglages reste un
+      // geste explicite qui peut la déclencher, comme avant.
+      const pushToken = await registerForPushNotificationsAsync({ demander: !premiereConfig });
       const hh = String(notifTime.getHours()).padStart(2, '0');
       const mm = String(notifTime.getMinutes()).padStart(2, '0');
 
@@ -129,7 +133,7 @@ export default function SettingsScreen() {
           'Ta première anecdote est prête',
           pushToken
             ? `La voici ! Les suivantes arriveront chaque jour à ${hh}:${mm}, dès demain.`
-            : `La voici ! Les suivantes seront disponibles chaque jour dans l'onglet Aujourd'hui.\n\nLes notifications ne sont pas disponibles ici (Expo Go, ou projectId EAS manquant).`
+            : `La voici ! Les suivantes seront prêtes chaque jour dans l'onglet Aujourd'hui.`
         );
         return;
       }

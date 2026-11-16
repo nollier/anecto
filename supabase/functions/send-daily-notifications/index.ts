@@ -12,6 +12,7 @@
 
 import { createClient } from 'npm:@supabase/supabase-js@^2';
 import { corsHeaders, fail, json } from './http.ts';
+import { texteRappel } from './rappel.ts';
 
 const ADMIN_SECRET = Deno.env.get('ANECTO_ADMIN_SECRET');
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -39,6 +40,14 @@ function amorce(ville: string, titre: string): { title: string; body: string } {
   };
 }
 
+interface Rappel {
+  user_id: string;
+  expo_push_token: string;
+  jour: string;
+  anecdote_id: string;
+  ville: string;
+}
+
 interface Cible {
   user_id: string;
   expo_push_token: string;
@@ -49,7 +58,7 @@ interface Message {
   title: string;
   body: string;
   sound: 'default';
-  data: { anecdoteId: string };
+  data: { type: 'quotidien' | 'rappel'; anecdoteId: string; jour?: string };
 }
 
 interface Ticket {
@@ -130,12 +139,50 @@ Deno.serve(async (req) => {
       title,
       body,
       sound: 'default',
-      data: { anecdoteId: data.id },
+      data: { type: 'quotidien', anecdoteId: data.id },
     });
+  }
+
+  // Second passage : le rappel du soir (ou du lendemain matin) pour qui n'a
+  // pas ouvert l'anecdote du jour. `rappels_a_envoyer` décide qui ; la ligne
+  // de `rappels_push` est réservée avant l'envoi, et sa clé primaire garantit
+  // un rappel par jour au plus, même si deux passages se chevauchent.
+  const rappelsPartis: Rappel[] = [];
+  const { data: rappels, error: rappelsError } = await supabase.rpc('rappels_a_envoyer', {
+    p_window_minutes: FENETRE_MINUTES,
+  });
+  if (rappelsError) {
+    problemes.push(`rappels_a_envoyer : ${rappelsError.message}`);
+  }
+
+  for (const r of (rappels ?? []) as Rappel[]) {
+    const { data: reserve, error } = await supabase
+      .from('rappels_push')
+      .upsert(
+        { user_id: r.user_id, jour: r.jour, anecdote_id: r.anecdote_id },
+        { onConflict: 'user_id,jour', ignoreDuplicates: true }
+      )
+      .select('user_id');
+    if (error) {
+      problemes.push(`rappel ${r.user_id} : ${error.message}`);
+      continue;
+    }
+    if (!reserve || reserve.length === 0) continue; // déjà rappelé
+
+    const { title, body } = texteRappel(r.ville, r.user_id, r.jour);
+    messages.push({
+      to: r.expo_push_token,
+      title,
+      body,
+      sound: 'default',
+      data: { type: 'rappel', anecdoteId: r.anecdote_id, jour: r.jour },
+    });
+    rappelsPartis.push(r);
   }
 
   let envoyes = 0;
   const jetonsMorts: string[] = [];
+  const rappelsOk = new Set<string>();
 
   for (let i = 0; i < messages.length; i += EXPO_BATCH_SIZE) {
     const lot = messages.slice(i, i + EXPO_BATCH_SIZE);
@@ -151,6 +198,7 @@ Deno.serve(async (req) => {
     tickets.forEach((ticket, index) => {
       if (ticket.status === 'ok') {
         envoyes++;
+        if (lot[index].data.type === 'rappel') rappelsOk.add(lot[index].to);
         return;
       }
       problemes.push(`${lot[index].to} : ${ticket.message ?? 'erreur Expo'}`);
@@ -160,6 +208,19 @@ Deno.serve(async (req) => {
         jetonsMorts.push(lot[index].to);
       }
     });
+  }
+
+  // Mesure : un événement par rappel réellement accepté par Expo.
+  const evenements = rappelsPartis
+    .filter((r) => rappelsOk.has(r.expo_push_token))
+    .map((r) => ({
+      user_id: r.user_id,
+      type: 'rappel_envoye',
+      details: { jour: r.jour, anecdote_id: r.anecdote_id },
+    }));
+  if (evenements.length > 0) {
+    const { error } = await supabase.from('evenements').insert(evenements);
+    if (error) problemes.push(`evenements : ${error.message}`);
   }
 
   if (jetonsMorts.length > 0) {
@@ -173,7 +234,10 @@ Deno.serve(async (req) => {
     due_count: dus.length,
     sent_count: envoyes,
     error_count: problemes.length,
-    details: problemes.length > 0 ? { problemes: problemes.slice(0, 50) } : null,
+    details:
+      problemes.length > 0 || evenements.length > 0
+        ? { rappels_envoyes: evenements.length, problemes: problemes.slice(0, 50) }
+        : null,
   };
 
   await supabase.from('notification_runs').insert(bilan);

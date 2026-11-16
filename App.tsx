@@ -4,7 +4,8 @@ import { NavigationContainer, createNavigationContainerRef } from '@react-naviga
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, AppState } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import * as Notifications from 'expo-notifications';
 import type { Session } from '@supabase/supabase-js';
@@ -12,6 +13,7 @@ import type { Session } from '@supabase/supabase-js';
 import { supabase } from './src/lib/supabase';
 import { syncPushToken } from './src/lib/notifications';
 import { declarerProvenance } from './src/lib/provenance';
+import { noter } from './src/lib/mesure';
 import HomeScreen from './src/screens/HomeScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import HistoryScreen from './src/screens/HistoryScreen';
@@ -67,6 +69,34 @@ function ouvrirAnecdoteDuJour() {
   }
 }
 
+const CLE_DERNIERE_OUVERTURE = 'anecto.push.derniere-ouverture';
+
+/**
+ * Mesure l'ouverture de l'app depuis une notification : type (quotidien ou
+ * rappel), jour et anecdote. Dédoublonnée par identifiant, car la dernière
+ * réponse reste lisible d'un démarrage à l'autre.
+ */
+async function noterOuverturePush(response: Notifications.NotificationResponse) {
+  try {
+    const id = response.notification.request.identifier;
+    if ((await AsyncStorage.getItem(CLE_DERNIERE_OUVERTURE)) === id) return;
+    await AsyncStorage.setItem(CLE_DERNIERE_OUVERTURE, id);
+    const data = (response.notification.request.content.data ?? {}) as Record<string, unknown>;
+    noter('ouverture_push', {
+      type: typeof data.type === 'string' ? data.type : 'quotidien',
+      jour: typeof data.jour === 'string' ? data.jour : null,
+      anecdote_id: typeof data.anecdoteId === 'string' ? data.anecdoteId : null,
+    });
+  } catch (erreur) {
+    console.warn('Ouverture push non mesurée', erreur);
+  }
+}
+
+function surReponseNotification(response: Notifications.NotificationResponse) {
+  noterOuverturePush(response);
+  ouvrirAnecdoteDuJour();
+}
+
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -103,12 +133,23 @@ export default function App() {
   // l'utilisateur s'était arrêté la veille.
   useEffect(() => {
     Notifications.getLastNotificationResponseAsync().then((response) => {
-      if (response) ouvrirAnecdoteDuJour();
+      if (response) surReponseNotification(response);
     });
 
-    const listener = Notifications.addNotificationResponseReceivedListener(ouvrirAnecdoteDuJour);
+    const listener = Notifications.addNotificationResponseReceivedListener(surReponseNotification);
     return () => listener.remove();
   }, []);
+
+  // Retour au premier plan : le lecteur a peut-être activé les notifications
+  // dans les réglages du téléphone. La resynchro ne demande rien, elle
+  // n'enregistre le jeton que si la permission est accordée.
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    const sub = AppState.addEventListener('change', (etat) => {
+      if (etat === 'active') syncPushToken();
+    });
+    return () => sub.remove();
+  }, [session?.user?.id]);
 
   if (loading) {
     return (
