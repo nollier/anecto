@@ -14,6 +14,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { oublierJetonPush, registerForPushNotificationsAsync } from '../lib/notifications';
+import { connuParEnAttente, oublierConnuParEnAttente } from '../lib/connuPar';
 import { deviceTimezone } from '../lib/places';
 import CityPicker from '../components/CityPicker';
 import BlocParrainage from '../components/BlocParrainage';
@@ -87,11 +88,20 @@ export default function SettingsScreen() {
         return;
       }
 
-      const pushToken = await registerForPushNotificationsAsync();
+      // À la toute première configuration, pas de fenêtre système : elle sera
+      // proposée après la première lecture, précédée d'une explication
+      // (DemandeNotifications). Ensuite, enregistrer ses réglages reste un
+      // geste explicite qui peut la déclencher, comme avant.
+      const pushToken = await registerForPushNotificationsAsync({ demander: !premiereConfig });
       const hh = String(notifTime.getHours()).padStart(2, '0');
       const mm = String(notifTime.getMinutes()).padStart(2, '0');
 
+      // La réponse à « Comment as-tu connu Anecto ? », si elle attendait que
+      // le profil existe.
+      const connuPar = premiereConfig ? await connuParEnAttente(userData.user.id) : {};
+
       const { error } = await supabase.from('profiles').upsert({
+        ...connuPar,
         id: userData.user.id,
         city: city.ville,
         city_place_id: city.place_id,
@@ -104,6 +114,7 @@ export default function SettingsScreen() {
         Alert.alert('Erreur', error.message);
         return;
       }
+      if ('connu_par_le' in connuPar) oublierConnuParEnAttente(userData.user.id);
 
       // Après l'enregistrement du profil, et jamais dans le même payload : la
       // fonction retire d'abord le jeton aux autres comptes de cet appareil,
@@ -129,7 +140,7 @@ export default function SettingsScreen() {
           'Ta première anecdote est prête',
           pushToken
             ? `La voici ! Les suivantes arriveront chaque jour à ${hh}:${mm}, dès demain.`
-            : `La voici ! Les suivantes seront disponibles chaque jour dans l'onglet Aujourd'hui.\n\nLes notifications ne sont pas disponibles ici (Expo Go, ou projectId EAS manquant).`
+            : `La voici ! Les suivantes seront prêtes chaque jour dans l'onglet Aujourd'hui.`
         );
         return;
       }

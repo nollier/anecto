@@ -1,8 +1,10 @@
-import { Alert, Share } from 'react-native';
+import { Alert, Platform, Share } from 'react-native';
 import * as Sharing from 'expo-sharing';
 import { Anecdote } from '../types';
 import { monCodeParrainage } from './parrainage';
 import { proposerAvisMagasin } from './avisMagasin';
+import { noter } from './mesure';
+import { t } from './textes';
 
 /** Les fiches des deux magasins. */
 export const LIEN_APP_STORE = 'https://apps.apple.com/fr/app/anecto-anecdotes-locales/id6804257118';
@@ -141,4 +143,60 @@ export async function partagerInvitation(): Promise<void> {
     console.error(erreur);
     Alert.alert('Partage impossible', 'Réessaie dans un instant.');
   }
+}
+
+/**
+ * Le message court envoyé après un « J'adore » : l'accroche, la ville, les
+ * deux fiches et, s'il existe, le code de parrainage. Pas l'anecdote entière :
+ * c'est une invitation à la découvrir, lisible d'un coup d'œil dans une
+ * messagerie.
+ */
+export function texteCourt(anecdote: Anecdote, code: string | null, source = 'adore'): string {
+  const lignes = [
+    `📖 ${anecdote.hook || anecdote.title}`,
+    '',
+    t('partageCourt.invitation', { ville: anecdote.city }),
+    `📱 App Store : ${LIEN_APP_STORE}`,
+    `🤖 Google Play : ${lienGooglePlay(source, code)}`,
+  ];
+  if (code) lignes.push(t('partageCourt.code', { code }));
+  return lignes.join('\n');
+}
+
+/**
+ * Ouvre le partage natif sur un message déjà rédigé, et le mesure.
+ *
+ * « Lancé » dès l'ouverture de la feuille. « Confirmé » seulement sur iOS :
+ * Android répond « partagé » même quand le sélecteur est refermé sans choix,
+ * ce qui gonflerait le chiffre. Vrai si le partage a abouti (ou, sur Android,
+ * si la feuille s'est ouverte).
+ */
+export async function partagerMessage(
+  message: string,
+  origine: 'adore' | 'quiz',
+  details: Record<string, unknown> = {}
+): Promise<boolean> {
+  noter(origine === 'quiz' ? 'quiz_partage' : 'partage_lance', { origine, ...details });
+  try {
+    const resultat = await Share.share(
+      { message, title: 'Anecto' },
+      { subject: 'Une histoire vraie sur ta ville', dialogTitle: t('partageAdore.dialogue') }
+    );
+    if (resultat.action !== Share.sharedAction) return false;
+    if (Platform.OS === 'ios') {
+      noter('partage_confirme', { origine, destination: resultat.activityType ?? null, ...details });
+    }
+    return true;
+  } catch (erreur) {
+    console.error(erreur);
+    Alert.alert('Partage impossible', 'Réessaie dans un instant.');
+    return false;
+  }
+}
+
+/** Le partage court d'une anecdote après un « J'adore ». */
+export async function partagerApresAdore(anecdote: Anecdote): Promise<void> {
+  const code = await monCodeParrainage();
+  const abouti = await partagerMessage(texteCourt(anecdote, code), 'adore', { anecdote_id: anecdote.id });
+  if (abouti) proposerAvisMagasin();
 }

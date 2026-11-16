@@ -29,7 +29,11 @@ Notifications.setNotificationHandler({
  * à leur heure et pour leur ville.
  */
 export async function syncPushToken(): Promise<void> {
-  const token = await registerForPushNotificationsAsync();
+  // Sans demander : la demande système ne part plus à l'ouverture, mais après
+  // une première lecture, précédée d'un écran qui l'explique (voir
+  // `DemandeNotifications`). Ici, on ne récupère le jeton que si la
+  // permission est déjà accordée.
+  const token = await registerForPushNotificationsAsync({ demander: false });
   if (!token) return;
 
   const { error } = await supabase.rpc('enregistrer_jeton_push', { p_token: token });
@@ -61,7 +65,9 @@ const PROJECT_ID_ABSENT = 'A_RENSEIGNER_APRES_EAS_INIT';
  * refusée, projectId EAS absent, et Expo Go qui ne supporte plus les
  * notifications distantes.
  */
-export async function registerForPushNotificationsAsync(): Promise<string | null> {
+export async function registerForPushNotificationsAsync(
+  { demander = true }: { demander?: boolean } = {}
+): Promise<string | null> {
   try {
     if (!Device.isDevice) {
       console.warn('Notifications push : appareil réel requis, pas un simulateur.');
@@ -74,24 +80,26 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
       return null;
     }
 
-    const { status: existingStatus } = await Notifications.getPermissionsAsync();
-    let finalStatus = existingStatus;
-
-    if (existingStatus !== 'granted') {
-      const { status } = await Notifications.requestPermissionsAsync();
-      finalStatus = status;
-    }
-
-    if (finalStatus !== 'granted') {
-      console.warn('Notifications push : permission refusée.');
-      return null;
-    }
-
+    // Avant toute demande : sur Android 13 et plus, la fenêtre de permission
+    // n'apparaît qu'une fois un canal créé.
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync('default', {
         name: 'default',
         importance: Notifications.AndroidImportance.MAX,
       });
+    }
+
+    const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    let finalStatus = existingStatus;
+
+    if (existingStatus !== 'granted' && demander) {
+      const { status } = await Notifications.requestPermissionsAsync();
+      finalStatus = status;
+    }
+
+    if (finalStatus !== 'granted') {
+      if (demander) console.warn('Notifications push : permission refusée.');
+      return null;
     }
 
     const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
@@ -102,4 +110,31 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
     console.warn('Notifications push indisponibles', err);
     return null;
   }
+}
+
+/**
+ * Ce que le système permet encore : demander (fenêtre système) ou seulement
+ * renvoyer vers les réglages du téléphone (iOS après un refus, Android après
+ * deux refus).
+ */
+export async function etatPermission(): Promise<'accordee' | 'demandable' | 'reglages'> {
+  try {
+    const { status, canAskAgain } = await Notifications.getPermissionsAsync();
+    if (status === 'granted') return 'accordee';
+    return canAskAgain ? 'demandable' : 'reglages';
+  } catch {
+    return 'demandable';
+  }
+}
+
+/** Demande la permission, puis enregistre le jeton. Vrai si un jeton est en base. */
+export async function activerNotifications(): Promise<boolean> {
+  const token = await registerForPushNotificationsAsync({ demander: true });
+  if (!token) return false;
+  const { error } = await supabase.rpc('enregistrer_jeton_push', { p_token: token });
+  if (error) {
+    console.warn('Jeton push non enregistré', error.message);
+    return false;
+  }
+  return true;
 }

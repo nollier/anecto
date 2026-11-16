@@ -12,6 +12,10 @@ import {
 import { supabase } from '../lib/supabase';
 import { proposerAvisMagasin } from '../lib/avisMagasin';
 import { Anecdote, FeedbackType } from '../types';
+import { partagerApresAdore } from '../lib/partage';
+import { reserverPropositionDuJour } from '../lib/propositionPartage';
+import { noter } from '../lib/mesure';
+import { t } from '../lib/textes';
 
 /** Le champ libre sert aux corrections comme aux propositions. */
 type SaisieLibre = 'incomplete' | 'propose' | null;
@@ -41,12 +45,16 @@ export default function AvisAnecdote({ anecdote, scrollRef }: Props) {
   const [saisie, setSaisie] = useState<SaisieLibre>(null);
   const [texteLibre, setTexteLibre] = useState('');
   const envoiEnCours = useRef(false);
+  // Après un « J'adore » : proposer d'envoyer l'histoire à un proche, en
+  // douceur, une fois par jour au plus.
+  const [propositionPartage, setPropositionPartage] = useState(false);
 
   // L'avis vit en base, pas dans l'état du composant : relancer l'app ne doit
   // pas permettre de voter une seconde fois sur la même anecdote.
   useEffect(() => {
     let vivant = true;
     setCharge(false);
+    setPropositionPartage(false);
     setSaisie(null);
     setTexteLibre('');
 
@@ -115,6 +123,15 @@ export default function AvisAnecdote({ anecdote, scrollRef }: Props) {
       setAvisDonne(type);
       setSaisie(null);
       setTexteLibre('');
+
+      // Le remerciement prend alors la forme de la carte de partage. Si elle
+      // a déjà été proposée aujourd'hui, on garde le remerciement habituel.
+      if (type === 'adore' && (await reserverPropositionDuJour())) {
+        setPropositionPartage(true);
+        noter('partage_propose', { origine: 'adore', anecdote_id: anecdote.id });
+        return;
+      }
+
       Alert.alert(
         'Merci !',
         type === 'propose'
@@ -130,6 +147,36 @@ export default function AvisAnecdote({ anecdote, scrollRef }: Props) {
   }
 
   if (!charge) return null;
+
+  if (propositionPartage) {
+    return (
+      <View style={styles.partageCarte}>
+        <Text style={styles.partageTitre}>{t('partageAdore.titre')}</Text>
+        <Text style={styles.partageTexte}>{t('partageAdore.texte', { ville: anecdote.city })}</Text>
+        <TouchableOpacity
+          style={styles.partageBouton}
+          accessibilityRole="button"
+          onPress={async () => {
+            setPropositionPartage(false);
+            await partagerApresAdore(anecdote);
+          }}
+        >
+          <Text style={styles.partageBoutonTexte}>{t('partageAdore.envoyer')}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.partagePlusTard}
+          accessibilityRole="button"
+          onPress={() => {
+            setPropositionPartage(false);
+            // Le moment de proposer une note sur le magasin, comme avant.
+            proposerAvisMagasin();
+          }}
+        >
+          <Text style={styles.partagePlusTardTexte}>{t('partageAdore.plusTard')}</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   if (avisDonne) return <Text style={styles.thanksText}>Merci pour ton retour 🙌</Text>;
 
@@ -208,4 +255,24 @@ const styles = StyleSheet.create({
   submitBtnText: { color: '#fff', fontSize: 13, fontWeight: '600' },
   cancel: { textAlign: 'center', color: '#888', marginTop: 12, fontSize: 14 },
   thanksText: { marginTop: 24, textAlign: 'center', color: '#666' },
+  partageCarte: {
+    marginTop: 32,
+    padding: 20,
+    borderRadius: 14,
+    backgroundColor: '#faf6f2',
+    borderLeftWidth: 4,
+    borderLeftColor: '#b3402f',
+  },
+  partageTitre: { fontSize: 19, fontWeight: '700', color: '#1a1a1a', lineHeight: 26 },
+  partageTexte: { fontSize: 16, color: '#444', lineHeight: 23, marginTop: 8 },
+  partageBouton: {
+    backgroundColor: '#b3402f',
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 18,
+  },
+  partageBoutonTexte: { color: '#fff', fontSize: 17, fontWeight: '700' },
+  partagePlusTard: { paddingVertical: 14, alignItems: 'center' },
+  partagePlusTardTexte: { color: '#666', fontSize: 16, fontWeight: '600' },
 });
