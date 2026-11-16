@@ -22,6 +22,10 @@ import { Anecdote, Statistiques, Voisinage } from '../types';
 import { chargerVoisinage, libelleVoisine, proposerVoisines, repondreVoisines } from '../lib/voisinage';
 import DemandeNotifications from '../components/DemandeNotifications';
 import { doitProposerNotifications } from '../lib/demandeNotifications';
+import { QuestionQuiz, ResultatQuiz, PartageResultatQuiz } from '../components/Quiz';
+import { EtatQuiz, chargerEtatQuiz, passerQuiz, repondreQuiz } from '../lib/quiz';
+import { noter } from '../lib/mesure';
+import { t } from '../lib/textes';
 
 /** Les trois voisines les plus proches, en toutes lettres : « Ciboure, Urrugne et Guéthary ». */
 function nommerVoisines(v: Voisinage): string {
@@ -104,6 +108,7 @@ export default function HomeScreen() {
   const scrollRef = useRef<ScrollView>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [demandeNotif, setDemandeNotif] = useState(false);
+  const [quiz, setQuiz] = useState<EtatQuiz>({ phase: 'aucun' });
   // Bas de la source dans le contenu défilant : l'atteindre, c'est avoir lu
   // l'anecdote en entier.
   const finDuTexte = useRef<number | null>(null);
@@ -157,6 +162,15 @@ export default function HomeScreen() {
     }
 
     const dujour = (data as Anecdote | null) ?? null;
+
+    // Le quiz se décide avant d'afficher quoi que ce soit : sans ça, le texte
+    // apparaîtrait une fraction de seconde avant la question qui le précède.
+    const etatQuiz = dujour ? await chargerEtatQuiz(dujour, userData.user.id) : { phase: 'aucun' as const };
+    if (etatQuiz.phase === 'question') {
+      finDuTexte.current = null;
+      noter('quiz_affiche', { anecdote_id: dujour!.id });
+    }
+    setQuiz(etatQuiz);
     setAnecdote(dujour);
 
     // L'anecdote est à l'écran : c'est ici, et nulle part ailleurs, qu'une
@@ -209,6 +223,24 @@ export default function HomeScreen() {
     // Une voisine a peut-être déjà de quoi lire : on recharge tout de suite.
     setLoading(true);
     await loadTodayAnecdote();
+  }
+
+  async function repondreAuQuiz(reponse: boolean) {
+    if (!anecdote) return;
+    const resultat = await repondreQuiz(anecdote, reponse);
+    if (!resultat) {
+      Alert.alert(t('quiz.erreur'));
+      setQuiz({ phase: 'aucun' });
+      return;
+    }
+    setQuiz({ phase: 'resultat', juste: resultat.juste, scores: resultat.scores });
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  }
+
+  function passerLeQuiz() {
+    if (!anecdote) return;
+    passerQuiz(anecdote);
+    setQuiz({ phase: 'aucun' });
   }
 
   function ouvrirSource() {
@@ -344,6 +376,16 @@ export default function HomeScreen() {
         <Text style={styles.voisineLibelle}>📍 {libelleVoisine(anecdote, voisinage)}</Text>
       )}
 
+      {/* Le quiz, quand il y en a un, passe avant le texte : l'anecdote donne
+          ensuite l'explication. */}
+      {quiz.phase === 'question' ? (
+        <QuestionQuiz anecdote={anecdote} onRepondre={repondreAuQuiz} onPasser={passerLeQuiz} />
+      ) : (
+      <>
+      {quiz.phase === 'resultat' && (
+        <ResultatQuiz anecdote={anecdote} juste={quiz.juste} scores={quiz.scores} />
+      )}
+
       <Text style={styles.eyebrow}>
         📖 Anecdote du jour · {anecdote.city}
         {anecdote.period ? ` · ${anecdote.period}` : ''}
@@ -372,12 +414,16 @@ export default function HomeScreen() {
 
       {/* Le partage vient après la source, jamais avant : ce qu'on transmet à
           un proche, c'est l'anecdote et sa preuve, dans cet ordre. */}
+      {quiz.phase === 'resultat' && <PartageResultatQuiz anecdote={anecdote} juste={quiz.juste} />}
+
       <PartageAnecdote anecdote={anecdote} />
 
       {/* Le vote n'est pas réservé au jour de l'envoi : le même bloc sert à
           la relecture depuis l'historique, et n'apparaît que si rien n'a
           encore été dit sur cette anecdote. */}
       <AvisAnecdote anecdote={anecdote} scrollRef={scrollRef} />
+      </>
+      )}
 
       {demandeNotif && userId && (
         <DemandeNotifications

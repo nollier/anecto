@@ -32,7 +32,15 @@ const OUVERTURES = [
   (ville: string) => `Une histoire de ${ville} t'attend`,
 ];
 
-function amorce(ville: string, titre: string): { title: string; body: string } {
+function amorce(ville: string, titre: string, quiz: boolean): { title: string; body: string } {
+  // Jour de quiz : on annonce la question, pas le titre, qui pourrait
+  // trahir la réponse.
+  if (quiz) {
+    return {
+      title: `Vrai ou faux : une question sur ${ville} t'attend`,
+      body: "Réponds, puis découvre l'histoire du jour.",
+    };
+  }
   const jour = Math.floor(Date.now() / 86_400_000);
   return {
     title: OUVERTURES[jour % OUVERTURES.length](ville),
@@ -132,7 +140,11 @@ Deno.serve(async (req) => {
       continue;
     }
 
-    const { title, body } = amorce(data.city, data.title);
+    const { title, body } = amorce(
+      data.city,
+      data.title,
+      !!data.quiz_affirmation && typeof data.quiz_reponse === 'boolean'
+    );
 
     messages.push({
       to: cible.expo_push_token,

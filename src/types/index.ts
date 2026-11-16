@@ -67,6 +67,17 @@ export interface Anecdote {
   reuse_count: number;
   created_at: string;
   validated_at: string | null;
+  /** « Vrai ou faux ? » montré avant le texte. Nul : pas de quiz. */
+  quiz_affirmation?: string | null;
+  quiz_reponse?: boolean | null;
+}
+
+/** Scores du quiz, calculés en base depuis `quiz_reponses`. */
+export interface ScoresQuiz {
+  repondus: number;
+  bonnes: number;
+  serie: number;
+  record: number;
 }
 
 /**

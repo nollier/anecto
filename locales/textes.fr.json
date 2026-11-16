@@ -23,5 +23,20 @@
   "connuPar.store": "En cherchant dans le store",
   "connuPar.autre": "Autre",
   "connuPar.passer": "Passer",
-  "connuPar.merci": "Merci !"
+  "connuPar.merci": "Merci !",
+  "quiz.etiquette": "Vrai ou faux ?",
+  "quiz.consigne": "Une question sur {ville} avant l'histoire du jour.",
+  "quiz.vrai": "Vrai",
+  "quiz.faux": "Faux",
+  "quiz.passer": "Passer et lire l'histoire",
+  "quiz.bienVu": "Bien vu !",
+  "quiz.rate": "Raté !",
+  "quiz.laReponse": "C'était {reponse}. L'histoire ci-dessous t'explique pourquoi.",
+  "quiz.serie": "{serie} bonnes réponses d'affilée",
+  "quiz.bonnes": "{bonnes} bonne(s) réponse(s) au total",
+  "quiz.partagerTitre": "Défie un proche",
+  "quiz.partagerBouton": "Partager mon résultat",
+  "quiz.partageTrouve": "Anecto, {ville}, {date} : j'ai trouvé ✅ Et toi, vrai ou faux ?",
+  "quiz.partageRate": "Anecto, {ville}, {date} : je me suis fait avoir ❌ Et toi, vrai ou faux ?",
+  "quiz.erreur": "Ta réponse n'a pas pu être enregistrée. Voici l'histoire du jour."
 }
