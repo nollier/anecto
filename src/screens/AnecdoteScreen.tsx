@@ -5,6 +5,14 @@ import { supabase } from '../lib/supabase';
 import AvisAnecdote from '../components/AvisAnecdote';
 import PartageAnecdote from '../components/PartageAnecdote';
 import { Anecdote } from '../types';
+import {
+  AUTORISER_POLICE_SYSTEME,
+  PADDING_LECTURE,
+  mesureCorps,
+  mesureTitre,
+  texteDuTitre,
+} from '../lib/tailleLecture';
+import ReglageTaille, { useTailleLecture } from '../components/ReglageTaille';
 
 /**
  * Relecture d'une anecdote déjà lue, ouverte depuis l'historique.
@@ -18,6 +26,7 @@ type ParamsAnecdote = { Anecdote: { anecdote: Anecdote; luLe?: string } };
 export default function AnecdoteScreen() {
   const { params } = useRoute<RouteProp<ParamsAnecdote, 'Anecdote'>>();
   const { anecdote, luLe } = params;
+  const { indice } = useTailleLecture();
   const scrollRef = useRef<ScrollView>(null);
 
   // C'est ici que le rattrapage se constate : ouvrir une anecdote en retard
@@ -47,6 +56,7 @@ export default function AnecdoteScreen() {
       automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
       keyboardDismissMode="interactive"
     >
+      <ReglageTaille />
       <Text style={styles.eyebrow}>
         {anecdote.city}
         {anecdote.period ? ` · ${anecdote.period}` : ''}
@@ -61,8 +71,17 @@ export default function AnecdoteScreen() {
 
       {/* Comme sur l'écran du jour : l'accroche porte le titre, avec repli sur
           l'étiquette courte pour les anecdotes d'avant l'accroche. */}
-      <Text style={styles.title}>{anecdote.hook || anecdote.title}</Text>
-      <Text style={styles.body} textBreakStrategy="highQuality">
+      <Text
+        style={[styles.title, mesureTitre(indice)]}
+        allowFontScaling={AUTORISER_POLICE_SYSTEME}
+      >
+        {texteDuTitre(anecdote)}
+      </Text>
+      <Text
+        style={[styles.body, mesureCorps(indice)]}
+        allowFontScaling={AUTORISER_POLICE_SYSTEME}
+        textBreakStrategy="highQuality"
+      >
         {anecdote.body}
       </Text>
 
@@ -90,12 +109,13 @@ export default function AnecdoteScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
-  content: { padding: 20, paddingBottom: 48 },
+  content: { padding: PADDING_LECTURE, paddingBottom: 48 },
   eyebrow: { fontSize: 13, color: '#888', marginBottom: 8, fontWeight: '600' },
-  title: { fontSize: 21, fontWeight: '700', lineHeight: 28, marginBottom: 18, color: '#1a1a1a' },
+  title: { fontWeight: '700', marginBottom: 18, color: '#1a1a1a' },
   // Justifié comme sur l'écran du jour : une anecdote relue doit se présenter
-  // exactement comme à sa première lecture.
-  body: { fontSize: 16, lineHeight: 26, color: '#333', textAlign: 'justify' },
+  // exactement comme à sa première lecture. Taille et interligne suivent le
+  // même palier.
+  body: { color: '#333', textAlign: 'justify' },
   source: { fontSize: 12, color: '#999', marginTop: 20, fontStyle: 'italic' },
   sourceLink: { fontSize: 12, color: '#007AFF', marginTop: 20 },
 });

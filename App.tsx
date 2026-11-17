@@ -21,6 +21,7 @@ import SettingsScreen from './src/screens/SettingsScreen';
 import HistoryScreen from './src/screens/HistoryScreen';
 import AnecdoteScreen from './src/screens/AnecdoteScreen';
 import AuthScreen from './src/screens/AuthScreen';
+import { TailleLectureProvider } from './src/components/ReglageTaille';
 
 const Tab = createBottomTabNavigator();
 const PileHistorique = createNativeStackNavigator();
@@ -100,6 +101,14 @@ function surReponseNotification(response: Notifications.NotificationResponse) {
 }
 
 export default function App() {
+  return (
+    <TailleLectureProvider>
+      <Application />
+    </TailleLectureProvider>
+  );
+}
+
+function Application() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const dernierJetonSynchronise = useRef<string | null>(null);
