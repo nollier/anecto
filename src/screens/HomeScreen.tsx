@@ -27,6 +27,14 @@ import { QuestionQuiz, ResultatQuiz, PartageResultatQuiz } from '../components/Q
 import { EtatQuiz, chargerEtatQuiz, passerQuiz, repondreQuiz } from '../lib/quiz';
 import { noter } from '../lib/mesure';
 import { t } from '../lib/textes';
+import {
+  AUTORISER_POLICE_SYSTEME,
+  PADDING_LECTURE,
+  mesureCorps,
+  mesureTitre,
+  texteDuTitre,
+} from '../lib/tailleLecture';
+import ReglageTaille, { useTailleLecture } from '../components/ReglageTaille';
 
 /** Les trois voisines les plus proches, en toutes lettres : « Ciboure, Urrugne et Guéthary ». */
 function nommerVoisines(v: Voisinage): string {
@@ -103,6 +111,7 @@ const DUREE_LECTURE_SANS_DEFILEMENT_MS = 20_000;
 
 export default function HomeScreen() {
   const navigation = useNavigation<any>();
+  const { indice } = useTailleLecture();
   const [anecdote, setAnecdote] = useState<Anecdote | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -416,6 +425,10 @@ export default function HomeScreen() {
         <Text style={styles.voisineLibelle}>📍 {libelleVoisine(anecdote, voisinage)}</Text>
       )}
 
+      {/* A- / A+ restent au-dessus du quiz comme du texte : le lecteur les
+          voit tout de suite, et ils ne sautent pas quand la question se termine. */}
+      <ReglageTaille />
+
       {/* Le quiz, quand il y en a un, passe avant le texte : l'anecdote donne
           ensuite l'explication. */}
       {quiz.phase === 'question' ? (
@@ -432,9 +445,18 @@ export default function HomeScreen() {
       </Text>
       {/* L'accroche porte le titre à l'écran. `title` reste l'étiquette courte
           de la notification — les anecdotes générées avant l'accroche n'en ont
-          pas, d'où le repli. */}
-      <Text style={styles.title}>{anecdote.hook || anecdote.title}</Text>
-      <Text style={styles.body} textBreakStrategy="highQuality">
+          pas, d'où le repli. Les deux suivent le même palier. */}
+      <Text
+        style={[styles.title, mesureTitre(indice)]}
+        allowFontScaling={AUTORISER_POLICE_SYSTEME}
+      >
+        {texteDuTitre(anecdote)}
+      </Text>
+      <Text
+        style={[styles.body, mesureCorps(indice)]}
+        allowFontScaling={AUTORISER_POLICE_SYSTEME}
+        textBreakStrategy="highQuality"
+      >
         {anecdote.body}
       </Text>
 
@@ -479,7 +501,7 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
-  content: { padding: 20, paddingTop: 60, paddingBottom: 40 },
+  content: { padding: PADDING_LECTURE, paddingTop: 60, paddingBottom: 40 },
   center: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   serieBloc: { marginBottom: 14, alignItems: 'flex-start' },
   serieRow: { flexDirection: 'row', alignItems: 'baseline', gap: 10, alignSelf: 'stretch' },
@@ -520,19 +542,14 @@ const styles = StyleSheet.create({
   voisinesOuiTexte: { color: '#fff', fontSize: 14, fontWeight: '600' },
   voisinesNon: { paddingVertical: 10, paddingHorizontal: 12 },
   voisinesNonTexte: { color: '#666', fontSize: 14, fontWeight: '600' },
-  // Une accroche fait une à deux lignes de plus qu'un titre de quatre mots :
-  // 24 points la faisaient déborder sur quatre lignes.
-  title: { fontSize: 21, fontWeight: '700', lineHeight: 28, marginBottom: 18, color: '#1a1a1a' },
-  // Le corps se lit maintenant sur plusieurs paragraphes : l'interligne compte.
-  //
+  // Taille et interligne viennent du palier de lecture (`mesureTitre`).
+  title: { fontWeight: '700', marginBottom: 18, color: '#1a1a1a' },
   // Justifié, comme un texte imprimé. Sur une colonne étroite, la justification
   // creuse des rivières de blanc si le moteur coupe les lignes au plus court :
   // `textBreakStrategy` en « highQuality » lui fait au contraire optimiser le
   // paragraphe entier. Sans ce réglage, Android justifie moins bien qu'il
-  // n'aligne à gauche.
+  // n'aligne à gauche. L'interligne suit le palier (`mesureCorps`).
   body: {
-    fontSize: 16,
-    lineHeight: 26,
     color: '#333',
     textAlign: 'justify',
   },

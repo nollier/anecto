@@ -223,15 +223,15 @@ export default function AvisAnecdote({ anecdote, scrollRef }: Props) {
       <View style={styles.feedbackRow}>
         <TouchableOpacity style={styles.feedbackBtn} onPress={() => envoyer('adore')}>
           <Text style={styles.feedbackBtnEmoji}>😍</Text>
-          <Text style={styles.feedbackBtnText} numberOfLines={1}>J'adore</Text>
+          <Text style={styles.feedbackBtnText}>J'adore</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.feedbackBtn} onPress={() => setSaisie('incomplete')}>
           <Text style={styles.feedbackBtnEmoji}>✏️</Text>
-          <Text style={styles.feedbackBtnText} numberOfLines={1}>Incomplète</Text>
+          <Text style={styles.feedbackBtnText}>Incomplète</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.feedbackBtn} onPress={() => setSaisie('propose')}>
           <Text style={styles.feedbackBtnEmoji}>💡</Text>
-          <Text style={styles.feedbackBtnText} numberOfLines={1}>Proposer</Text>
+          <Text style={styles.feedbackBtnText}>Proposer</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -241,14 +241,23 @@ export default function AvisAnecdote({ anecdote, scrollRef }: Props) {
 const styles = StyleSheet.create({
   feedbackBlock: { marginTop: 32, paddingTop: 20, borderTopWidth: 1, borderTopColor: '#eee' },
   feedbackQuestion: { fontSize: 15, fontWeight: '600', marginBottom: 12 },
-  feedbackRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
-  feedbackBtn: { flex: 1, backgroundColor: '#f2f2f2', paddingVertical: 12, paddingHorizontal: 4, borderRadius: 10, alignItems: 'center' },
-  feedbackBtnEmoji: { fontSize: 18, marginBottom: 4 },
-  // Emoji et libellé sur deux lignes : « Incomplète » seul, à 13pt, tient
-  // toujours dans le tiers de largeur qui lui reste sur un écran Android
-  // étroit — c'est le partage avec l'emoji sur la même ligne qui le faisait
-  // déborder sur deux lignes.
-  feedbackBtnText: { fontSize: 13, fontWeight: '600' },
+  // Les boutons prennent la largeur de leur libellé et passent à la ligne
+  // suivante quand la police système grandit. Une ellipse couperait
+  // « Incomplète » dès qu'un tiers d'écran ne suffit plus.
+  feedbackRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  feedbackBtn: {
+    flexGrow: 1,
+    maxWidth: '100%',
+    minHeight: 44,
+    backgroundColor: '#f2f2f2',
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  feedbackBtnEmoji: { fontSize: 18, lineHeight: 24, marginBottom: 4 },
+  feedbackBtnText: { fontSize: 13, lineHeight: 18, fontWeight: '600', textAlign: 'center' },
   input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 10, padding: 12, minHeight: 80, textAlignVertical: 'top' },
   submitBtn: { backgroundColor: '#222', padding: 14, borderRadius: 10, alignItems: 'center', marginTop: 12 },
   submitBtnDisabled: { backgroundColor: '#bbb' },
