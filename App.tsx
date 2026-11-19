@@ -21,10 +21,13 @@ import SettingsScreen from './src/screens/SettingsScreen';
 import HistoryScreen from './src/screens/HistoryScreen';
 import AnecdoteScreen from './src/screens/AnecdoteScreen';
 import AuthScreen from './src/screens/AuthScreen';
+import CommunauteScreen from './src/screens/CommunauteScreen';
+import IdeeScreen from './src/screens/IdeeScreen';
 import { TailleLectureProvider } from './src/components/ReglageTaille';
 
 const Tab = createBottomTabNavigator();
 const PileHistorique = createNativeStackNavigator();
+const PileCommunaute = createNativeStackNavigator();
 const navigationRef = createNavigationContainerRef();
 
 /**
@@ -56,6 +59,7 @@ function OngletHistorique() {
 }
 
 const ONGLET_DU_JOUR = "Aujourd'hui";
+const ONGLET_COMMUNAUTE = 'Communauté';
 
 // Sans `tabBarIcon`, react-navigation affiche un rectangle vide en lieu et
 // place de l'icône manquante — visible sur Android, où aucune police système
@@ -63,12 +67,39 @@ const ONGLET_DU_JOUR = "Aujourd'hui";
 const ICONES_ONGLET: Record<string, keyof typeof Ionicons.glyphMap> = {
   [ONGLET_DU_JOUR]: 'today',
   Historique: 'time',
+  [ONGLET_COMMUNAUTE]: 'people',
   Réglages: 'settings',
 };
+/** L'onglet Communauté : le vote, et la boîte à idées en écran empilé. */
+function OngletCommunaute() {
+  return (
+    <PileCommunaute.Navigator>
+      <PileCommunaute.Screen name="Vote" component={CommunauteScreen} options={{ headerShown: false }} />
+      <PileCommunaute.Screen
+        name="Idee"
+        component={IdeeScreen}
+        options={{
+          title: '',
+          headerBackTitle: 'Vote',
+          headerShadowVisible: false,
+          headerStyle: { backgroundColor: '#fff' },
+          headerTintColor: '#1a1a1a',
+        }}
+      />
+    </PileCommunaute.Navigator>
+  );
+}
 
 function ouvrirAnecdoteDuJour() {
   if (navigationRef.isReady()) {
     navigationRef.navigate(ONGLET_DU_JOUR as never);
+  }
+}
+
+/** Le push d'ouverture d'un vote mène au vote, pas à l'anecdote. */
+function ouvrirCommunaute() {
+  if (navigationRef.isReady()) {
+    navigationRef.navigate(ONGLET_COMMUNAUTE as never);
   }
 }
 
@@ -97,7 +128,9 @@ async function noterOuverturePush(response: Notifications.NotificationResponse) 
 
 function surReponseNotification(response: Notifications.NotificationResponse) {
   noterOuverturePush(response);
-  ouvrirAnecdoteDuJour();
+  const data = (response.notification.request.content.data ?? {}) as Record<string, unknown>;
+  if (data.type === 'vote') ouvrirCommunaute();
+  else ouvrirAnecdoteDuJour();
 }
 
 export default function App() {
@@ -204,6 +237,7 @@ function Application() {
       >
         <Tab.Screen name={ONGLET_DU_JOUR} component={HomeScreen} />
         <Tab.Screen name="Historique" component={OngletHistorique} />
+        <Tab.Screen name={ONGLET_COMMUNAUTE} component={OngletCommunaute} />
         <Tab.Screen name="Réglages" component={SettingsScreen} />
       </Tab.Navigator>
       {questionConnuPar && (
