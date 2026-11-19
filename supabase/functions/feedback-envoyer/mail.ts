@@ -30,6 +30,14 @@ export function lireReglages(): Reglages | null {
   };
 }
 
+/** Base64 en lignes de 76 caractères, comme l'exige la RFC 2045. */
+function base64(texte: string): string {
+  const octets = new TextEncoder().encode(texte);
+  let binaire = '';
+  for (const o of octets) binaire += String.fromCharCode(o);
+  return (btoa(binaire).match(/.{1,76}/g) ?? []).join('\r\n');
+}
+
 /**
  * Sujet encodé selon la RFC 2047, en mots base64 de 75 caractères au plus.
  *
@@ -87,8 +95,13 @@ export async function envoyer(
       replyTo: reglages.expediteur,
       to: destinataire,
       subject: encoderSujet(sujet),
-      content: texte,
-      html,
+      // Encodé ici en base64, comme notify-feedback : le quoted-printable de
+      // denomailer coupait la connexion SMTP sur une réponse de plusieurs
+      // paragraphes accentués (BadResource, 19 novembre).
+      mimeContent: [
+        { mimeType: 'text/plain; charset="utf-8"', content: base64(texte), transferEncoding: 'base64' },
+        { mimeType: 'text/html; charset="utf-8"', content: base64(html), transferEncoding: 'base64' },
+      ],
     });
   } finally {
     await client.close();
