@@ -118,7 +118,7 @@ export function messageEmail(
 //
 // HMAC-SHA256 de l'identifiant du compte : le lien ne peut pas être fabriqué
 // pour un autre compte sans le secret. Le même code vit dans
-// `desinscription-annonces/jeton.ts` (pas d'import partagé entre fonctions).
+// `desinscription-annonces/index.ts` (pas d'import partagé entre fonctions).
 
 function hex(octets: ArrayBuffer): string {
   return [...new Uint8Array(octets)].map((b) => b.toString(16).padStart(2, '0')).join('');
