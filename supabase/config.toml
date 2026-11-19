@@ -43,3 +43,12 @@ verify_jwt = false
 
 [functions.prevenir-voisines]
 verify_jwt = false
+
+# Annonce des votes (push + email), appelée par pg_cron avec le secret admin.
+[functions.annonce-vote]
+verify_jwt = false
+
+# Lien de désinscription des emails : ouvert depuis une boîte mail, sans
+# session. Protégé par un jeton HMAC propre à chaque compte.
+[functions.desinscription-annonces]
+verify_jwt = false
