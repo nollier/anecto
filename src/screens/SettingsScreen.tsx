@@ -11,6 +11,8 @@ import {
   Switch,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import * as Application from 'expo-application';
+import * as Updates from 'expo-updates';
 import { useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { oublierJetonPush, registerForPushNotificationsAsync } from '../lib/notifications';
@@ -275,8 +277,27 @@ export default function SettingsScreen() {
       >
         <Text style={styles.lienLegal}>Politique de confidentialité ↗</Text>
       </TouchableOpacity>
+
+      <Text style={styles.version} selectable>
+        {libelleVersion()}
+      </Text>
     </ScrollView>
   );
+}
+
+/**
+ * « Version 1.2.1 (42) · mise à jour 01a1f32e du 19/11 » ou « · version
+ * d'origine ». Dit d'un coup d'œil si une mise à jour à distance tourne,
+ * ou si l'app est revenue au code du magasin (mise à jour en échec).
+ */
+function libelleVersion(): string {
+  const version = `Version ${Application.nativeApplicationVersion ?? '?'} (${Application.nativeBuildVersion ?? '?'})`;
+  if (!Updates.isEnabled) return `${version} · développement`;
+  if (Updates.isEmbeddedLaunch || !Updates.updateId) return `${version} · version d'origine`;
+  const date = Updates.createdAt
+    ? ` du ${Updates.createdAt.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}`
+    : '';
+  return `${version} · mise à jour ${Updates.updateId.slice(0, 8)}${date}`;
 }
 
 const styles = StyleSheet.create({
@@ -300,4 +321,5 @@ const styles = StyleSheet.create({
   secondaryBtnText: { fontSize: 15, fontWeight: '600', color: '#1a1a1a' },
   dangerText: { textAlign: 'center', color: '#b3402f', fontSize: 14, marginTop: 20 },
   lienLegal: { textAlign: 'center', color: '#888', fontSize: 13, marginTop: 28 },
+  version: { textAlign: 'center', color: '#888', fontSize: 12, marginTop: 16 },
 });
