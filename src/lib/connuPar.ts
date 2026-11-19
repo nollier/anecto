@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { User } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import { noter } from './mesure';
+import { precisionConnuPar } from './precisionConnuPar';
 
 export const REPONSES_CONNU_PAR = [
   'proche',
@@ -23,6 +24,8 @@ const cleEnAttente = (userId: string) => `anecto.connu-par.en-attente.${userId}`
 interface EnAttente {
   connu_par: ReponseConnuPar | null;
   connu_par_le: string;
+  /** Présent seulement quand « autre » est accompagné d'un texte non vide. */
+  connu_par_precision?: string;
 }
 
 /**
@@ -70,10 +73,25 @@ export async function doitDemanderConnuPar(user: User): Promise<boolean> {
   }
 }
 
-/** `null` : le lecteur a passé la question. */
-export async function repondreConnuPar(userId: string, reponse: ReponseConnuPar | null): Promise<void> {
+/**
+ * `reponse` null : le lecteur a passé la question.
+ * `precision` n'est retenue que pour « autre », trimmée, au plus 200 caractères.
+ * Vide : on enregistre `autre` sans texte, l'onboarding continue.
+ */
+export async function repondreConnuPar(
+  userId: string,
+  reponse: ReponseConnuPar | null,
+  precision = '',
+): Promise<void> {
   noter(reponse ? 'connu_par_repondu' : 'connu_par_passe', reponse ? { reponse } : undefined);
-  const valeurs: EnAttente = { connu_par: reponse, connu_par_le: new Date().toISOString() };
+  const texte = precisionConnuPar(reponse, precision);
+  const valeurs: EnAttente = {
+    connu_par: reponse,
+    connu_par_le: new Date().toISOString(),
+    // Absent quand il n'y a rien à dire : les réponses fermées gardent
+    // exactement le même payload qu'avant.
+    ...(texte ? { connu_par_precision: texte } : {}),
+  };
   try {
     await AsyncStorage.setItem(cleFaite(userId), '1');
     if (!(await ecrire(userId, valeurs))) {
