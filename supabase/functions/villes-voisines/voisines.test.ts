@@ -3,7 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sansLaVille, simplifier } from './voisines.ts';
+import { ecartMaxKm, sansLaVille, simplifier, territoire } from './voisines.ts';
 
 test('retire la ville de sa propre liste de voisines', () => {
   const communes = [
@@ -15,4 +15,17 @@ test('retire la ville de sa propre liste de voisines', () => {
 
 test('compare les noms sans accents ni tirets', () => {
   assert.equal(simplifier('Saint-Pée-sur-Nivelle'), simplifier('saint pee sur nivelle'));
+});
+
+test("nomme le territoire d'outre-mer dans la recherche Google", () => {
+  assert.equal(territoire('974'), 'La Réunion');
+  assert.equal(territoire('971'), 'Guadeloupe');
+  assert.equal(territoire('64'), 'France');
+  assert.equal(territoire(null), 'France');
+});
+
+test("élargit l'écart toléré outre-mer seulement", () => {
+  assert.equal(ecartMaxKm('974'), 15);
+  assert.equal(ecartMaxKm('64'), 6);
+  assert.equal(ecartMaxKm(null), 6);
 });
