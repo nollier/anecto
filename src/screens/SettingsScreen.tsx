@@ -28,13 +28,13 @@ export default function SettingsScreen() {
   const navigation = useNavigation<any>();
   const [city, setCity] = useState<VilleCouverte | null>(null);
   const [legacyCity, setLegacyCity] = useState<string | null>(null);
-  const [notifTime, setNotifTime] = useState(new Date(new Date().setHours(21, 0, 0, 0)));
+  const [notifTime, setNotifTime] = useState(new Date(new Date().setHours(12, 15, 0, 0)));
   const [showPicker, setShowPicker] = useState(false);
   const [saving, setSaving] = useState(false);
   const [suppression, setSuppression] = useState(false);
   // Nul tant que l'accueil ne l'a pas demandé : l'interrupteur montre alors
   // « non », et le basculer vaut réponse.
-  const [voisines, setVoisines] = useState<boolean | null>(null);
+  const [voisines, setVoisines] = useState<boolean | null>(true);
   // Vrai tant que le profil n'a jamais eu de ville : le premier
   // enregistrement mène directement à l'anecdote du jour, déjà disponible.
   const [premiereConfig, setPremiereConfig] = useState(true);
@@ -65,7 +65,8 @@ export default function SettingsScreen() {
       setLegacyCity(data.city);
     }
 
-    setVoisines(data.villes_voisines ?? null);
+    // Activé par défaut : seul un « non » explicite le coupe.
+    setVoisines(data.villes_voisines ?? true);
 
     if (data.notification_hour) {
       const [h, m] = data.notification_hour.split(':').map(Number);
@@ -109,6 +110,9 @@ export default function SettingsScreen() {
         city_place_id: city.place_id,
         timezone: deviceTimezone(),
         notification_hour: `${hh}:${mm}:00`,
+        // À la création du profil, le choix affiché (activé par défaut) est
+        // enregistré avec le reste. Ensuite, l'interrupteur s'enregistre seul.
+        ...(premiereConfig ? { villes_voisines: voisines ?? true } : {}),
         updated_at: new Date().toISOString(),
       });
 
@@ -176,6 +180,8 @@ export default function SettingsScreen() {
   async function basculerVoisines(valeur: boolean) {
     const avant = voisines;
     setVoisines(valeur);
+    // Pas encore de profil : le choix part avec « Enregistrer ».
+    if (premiereConfig) return;
     try {
       await repondreVoisines(valeur);
     } catch (err) {
