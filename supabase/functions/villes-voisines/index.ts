@@ -8,8 +8,8 @@
 //      communes de plus de 1 500 habitants à moins de 30 km ;
 //   3. Google donne l'identifiant de chacune, celui que l'app et la
 //      production utilisent pour rattacher une anecdote à une ville. Un lieu
-//      rendu à plus de 6 km du centre de la commune est écarté : c'est un
-//      homonyme.
+//      rendu à plus de 6 km du centre de la commune (15 km outre-mer) est
+//      écarté : c'est un homonyme.
 //
 // Une douzaine d'appels Google par ville, une fois pour toutes.
 
@@ -17,11 +17,12 @@ import { createClient } from 'npm:@supabase/supabase-js@^2';
 import { corsHeaders, fail, json } from './http.ts';
 import {
   type Commune,
-  ECART_MAX_KM,
+  ecartMaxKm,
   MAX_VOISINES,
   POPULATION_MIN,
   RAYON_KM,
   sansLaVille,
+  territoire,
 } from './voisines.ts';
 
 const ADMIN_SECRET = Deno.env.get('ANECTO_ADMIN_SECRET');
@@ -59,7 +60,11 @@ async function centre(placeId: string): Promise<Point | null> {
 }
 
 /** L'identifiant Google de la commune, ou null si Google rend autre chose. */
-async function identifiant(nom: string, autour: Point): Promise<{ id: string; nom: string } | null> {
+async function identifiant(
+  nom: string,
+  departement: string | null,
+  autour: Point,
+): Promise<{ id: string; nom: string } | null> {
   const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
     method: 'POST',
     headers: {
@@ -68,7 +73,7 @@ async function identifiant(nom: string, autour: Point): Promise<{ id: string; no
       'X-Goog-FieldMask': 'places.id,places.displayName,places.location',
     },
     body: JSON.stringify({
-      textQuery: `${nom}, France`,
+      textQuery: `${nom}, ${territoire(departement)}`,
       languageCode: 'fr',
       includedType: 'locality',
       strictTypeFiltering: true,
@@ -82,7 +87,7 @@ async function identifiant(nom: string, autour: Point): Promise<{ id: string; no
   }
   const lieu = (await res.json())?.places?.[0];
   if (!lieu?.id || !lieu.location) return null;
-  if (distanceKm(autour, lieu.location) > ECART_MAX_KM) return null;
+  if (distanceKm(autour, lieu.location) > ecartMaxKm(departement)) return null;
   return { id: lieu.id, nom: lieu.displayName?.text ?? nom };
 }
 
@@ -121,7 +126,7 @@ async function calculer(supabase: Db, placeId: string, ville: string) {
     if (voisines.length >= MAX_VOISINES) break;
     const autour = centres.get(c.insee);
     if (!autour) continue;
-    const lieu = await identifiant(c.nom, autour);
+    const lieu = await identifiant(c.nom, c.departement, autour);
     if (!lieu || lieu.id === placeId) continue;
     voisines.push({
       place_id: placeId,
