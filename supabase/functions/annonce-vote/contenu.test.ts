@@ -38,7 +38,7 @@ test('le push énumère les options et la date', () => {
 test("l'email liste les options et porte le lien de désinscription", () => {
   const { texte, html } = messageEmail(campagne, 'https://x/desinscription-annonces?u=a&t=b');
   assert.match(texte, /Anecto évolue/);
-  assert.match(texte, /version 1\.2\.1/);
+  assert.match(texte, /mets d'abord Anecto à jour/);
   assert.match(texte, /- Suivre 2 villes : Ta ville et une autre/);
   assert.match(texte, /- Des images dans les anecdotes\n/);
   assert.match(html, /u=a&amp;t=b/);

@@ -77,7 +77,7 @@ export function messageEmail(
     ? "Merci de lire Anecto chaque jour. L'application s'enrichit d'un nouvel onglet, Communauté : tous les 14 jours, tu votes pour la prochaine fonctionnalité, et celle qui arrive en tête est développée en priorité. Le premier vote est ouvert."
     : 'Anecto grandit grâce à vous. Tous les 14 jours, vous choisissez la prochaine fonctionnalité. Celle qui arrive en tête est développée en priorité.';
   const miseAJour =
-    "Pour voir l'onglet, mets d'abord Anecto à jour depuis l'App Store ou Google Play (version 1.2.1).";
+    "Pour voir l'onglet, mets d'abord Anecto à jour depuis l'App Store ou Google Play.";
 
   const texte = [
     titre,
