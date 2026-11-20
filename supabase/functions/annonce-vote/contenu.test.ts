@@ -25,16 +25,20 @@ test('le dernier jour de vote est la veille de la fin exclusive', () => {
 
 test('le push énumère les options et la date', () => {
   const { title, body } = messagePush(campagne);
-  assert.equal(title, 'À toi de choisir la prochaine nouveauté');
+  assert.equal(title, "Anecto évolue, et c'est toi qui choisis");
+  assert.match(body, /^Mets à jour l'app/);
+  assert.match(body, /suivre 2 villes, des images dans les anecdotes ou sauvegarder mes favorites \? Jusqu'au 14 décembre\.$/);
+  const suivant = messagePush({ ...campagne, numero: 2 });
   assert.equal(
-    body,
+    suivant.body,
     "Suivre 2 villes, des images dans les anecdotes ou sauvegarder mes favorites ? Le vote est ouvert jusqu'au 14 décembre."
   );
 });
 
 test("l'email liste les options et porte le lien de désinscription", () => {
   const { texte, html } = messageEmail(campagne, 'https://x/desinscription-annonces?u=a&t=b');
-  assert.match(texte, /Le premier vote est ouvert/);
+  assert.match(texte, /Anecto évolue/);
+  assert.match(texte, /version 1\.2\.1/);
   assert.match(texte, /- Suivre 2 villes : Ta ville et une autre/);
   assert.match(texte, /- Des images dans les anecdotes\n/);
   assert.match(html, /u=a&amp;t=b/);

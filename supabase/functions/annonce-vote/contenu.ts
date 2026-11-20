@@ -50,6 +50,13 @@ function enumererOu(mots: string[]): string {
 
 export function messagePush(c: CampagneAnnonce): { title: string; body: string } {
   const choix = enumererOu(c.options.map((o) => o.libelle.toLowerCase()));
+  // Premier vote : l'onglet n'existe qu'à partir de la version 1.2.1.
+  if (c.numero === 1) {
+    return {
+      title: 'Anecto évolue, et c\'est toi qui choisis',
+      body: `Mets à jour l'app et vote dans le nouvel onglet Communauté : ${choix} ? Jusqu'au ${dernierJour(c.fin)}.`,
+    };
+  }
   return {
     title: 'À toi de choisir la prochaine nouveauté',
     body: `${choix.charAt(0).toUpperCase()}${choix.slice(1)} ? Le vote est ouvert jusqu'au ${dernierJour(c.fin)}.`,
@@ -62,10 +69,15 @@ export function messageEmail(
 ): { sujet: string; texte: string; html: string } {
   const jusquau = dernierJour(c.fin);
   const premier = c.numero === 1;
-  const sujet = "Anecto : à toi de choisir la prochaine nouveauté";
-  const titre = premier ? 'Le premier vote est ouvert' : 'Un nouveau vote est ouvert';
-  const intro =
-    "Anecto grandit grâce à vous. Tous les 14 jours, vous choisissez la prochaine fonctionnalité. Celle qui arrive en tête est développée en priorité.";
+  const sujet = premier
+    ? 'Anecto évolue : à toi de choisir la suite'
+    : 'Anecto : à toi de choisir la prochaine nouveauté';
+  const titre = premier ? "Anecto évolue, et c'est toi qui choisis" : 'Un nouveau vote est ouvert';
+  const intro = premier
+    ? "Merci de lire Anecto chaque jour. L'application s'enrichit d'un nouvel onglet, Communauté : tous les 14 jours, tu votes pour la prochaine fonctionnalité, et celle qui arrive en tête est développée en priorité. Le premier vote est ouvert."
+    : 'Anecto grandit grâce à vous. Tous les 14 jours, vous choisissez la prochaine fonctionnalité. Celle qui arrive en tête est développée en priorité.';
+  const miseAJour =
+    "Pour voir l'onglet, mets d'abord Anecto à jour depuis l'App Store ou Google Play (version 1.2.1).";
 
   const texte = [
     titre,
@@ -74,6 +86,7 @@ export function messageEmail(
     '',
     ...c.options.map((o) => `- ${o.libelle}${o.description ? ` : ${o.description}` : ''}`),
     '',
+    ...(premier ? [miseAJour] : []),
     "Pour voter, ouvre Anecto et va dans l'onglet Communauté.",
     "Une autre idée ? Propose-la dans l'app, elle pourra figurer au prochain vote.",
     '',
@@ -101,6 +114,7 @@ export function messageEmail(
   <div style="font-size:22px;font-weight:700;margin-bottom:12px">${titre}</div>
   <p style="font-size:15px;line-height:1.55;color:#333;margin:0 0 18px">${intro}</p>
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:separate">${options}</table>
+  ${premier ? `<p style="font-size:15px;line-height:1.55;color:#1a1a1a;margin:10px 0 6px;padding:12px 14px;background:#faf6f2;border-radius:10px"><strong>Important :</strong> ${miseAJour}</p>` : ''}
   <p style="font-size:15px;line-height:1.55;color:#333;margin:10px 0 6px">Pour voter, ouvre Anecto et va dans l'onglet <strong>Communauté</strong>.</p>
   <p style="font-size:14px;line-height:1.55;color:#444;margin:0 0 18px">Une autre idée ? Propose-la dans l'app, elle pourra figurer au prochain vote.</p>
   <p style="font-size:13px;color:#555;margin:0">Vote ouvert jusqu'au ${jusquau}.</p>
