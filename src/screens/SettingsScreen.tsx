@@ -28,7 +28,7 @@ export default function SettingsScreen() {
   const navigation = useNavigation<any>();
   const [city, setCity] = useState<VilleCouverte | null>(null);
   const [legacyCity, setLegacyCity] = useState<string | null>(null);
-  const [notifTime, setNotifTime] = useState(new Date(new Date().setHours(12, 15, 0, 0)));
+  const [notifTime, setNotifTime] = useState(new Date(new Date().setHours(21, 0, 0, 0)));
   const [showPicker, setShowPicker] = useState(false);
   const [saving, setSaving] = useState(false);
   const [suppression, setSuppression] = useState(false);
