@@ -25,6 +25,7 @@ import { createClient } from 'npm:@supabase/supabase-js@^2';
 import { envoyer, lireReglages } from './mail.ts';
 import { corsHeaders, fail, json } from './http.ts';
 import { genererBrouillon } from './deepseek.ts';
+import { signalerIdees } from './idees.ts';
 
 const ADMIN_SECRET = Deno.env.get('ANECTO_ADMIN_SECRET');
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -181,18 +182,30 @@ Deno.serve(async (req) => {
 
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
+  // Les idées partent dans un email à part, indépendamment des retours : une
+  // panne d'un côté ne bloque pas l'autre.
+  let idees = 0;
+  let erreurIdees: string | undefined;
+  try {
+    idees = await signalerIdees(supabase, reglages);
+  } catch (err) {
+    console.error('Idées', err);
+    erreurIdees = String(err);
+  }
+  const extra = { idees, ...(erreurIdees ? { erreur_idees: erreurIdees } : {}) };
+
   const { data, error } = await supabase.rpc('retours_a_signaler', {
     p_limit: MAX_PAR_ENVOI,
   });
 
   if (error) {
     console.error('Lecture des retours', error);
-    return json({ error: error.message }, 500);
+    return json({ error: error.message, ...extra }, 500);
   }
 
   const retours = (data ?? []) as Retour[];
   if (retours.length === 0) {
-    return json({ envoyes: 0 });
+    return json({ envoyes: 0, ...extra });
   }
 
   await completerBrouillons(supabase, retours);
@@ -209,7 +222,7 @@ Deno.serve(async (req) => {
   } catch (err) {
     // On ne marque rien : les retours repartiront au prochain passage du cron.
     console.error('Envoi SMTP', err);
-    return json({ envoyes: 0, error: `Envoi impossible : ${err}` }, 502);
+    return json({ envoyes: 0, error: `Envoi impossible : ${err}`, ...extra }, 502);
   }
 
   const { error: erreurMarquage } = await supabase
@@ -224,8 +237,8 @@ Deno.serve(async (req) => {
     // L'email est parti : le signaler franchement plutôt que de le taire, sinon
     // le prochain passage renverra les mêmes retours sans qu'on comprenne.
     console.error('Marquage échoué', erreurMarquage);
-    return json({ envoyes: retours.length, error: `Marquage échoué : ${erreurMarquage.message}` }, 500);
+    return json({ envoyes: retours.length, error: `Marquage échoué : ${erreurMarquage.message}`, ...extra }, 500);
   }
 
-  return json({ envoyes: retours.length });
+  return json({ envoyes: retours.length, ...extra });
 });
