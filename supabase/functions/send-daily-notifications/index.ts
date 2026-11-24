@@ -59,6 +59,7 @@ interface Rappel {
 interface Cible {
   user_id: string;
   expo_push_token: string;
+  jour: string;
 }
 
 interface Message {
@@ -139,6 +140,23 @@ Deno.serve(async (req) => {
       problemes.push(`${cible.user_id} : aucune anecdote disponible`);
       continue;
     }
+
+    // Réserve la notification du jour avant l'envoi : la clé primaire
+    // (user_id, jour) empêche un doublon si deux passages se chevauchent.
+    // L'historique ne sert plus d'anti-doublon : avoir ouvert l'app plus tôt
+    // ne doit pas supprimer la notification.
+    const { data: reserve, error: reserveError } = await supabase
+      .from('notifications_quotidiennes')
+      .upsert(
+        { user_id: cible.user_id, jour: cible.jour, anecdote_id: data.id },
+        { onConflict: 'user_id,jour', ignoreDuplicates: true }
+      )
+      .select('user_id');
+    if (reserveError) {
+      problemes.push(`${cible.user_id} : ${reserveError.message}`);
+      continue;
+    }
+    if (!reserve || reserve.length === 0) continue; // déjà notifié
 
     const { title, body } = amorce(
       data.city,
