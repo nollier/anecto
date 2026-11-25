@@ -52,4 +52,5 @@ test('après une correction, il ne reste que publier ou rejeter', () => {
   );
   assert.equal(a?.decision, 'rejeter');
   assert.deepEqual(a?.consignes, []);
+  assert.match(a!.motif, /^Doute persistant après correction : x/);
 });

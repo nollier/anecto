@@ -130,13 +130,20 @@ export function lireArbitrage(brut: unknown, sansCorrection = false): Arbitrage 
     if (fondes.length === 0) return null;
     consignes.push(...fondes.map((r) => `Retirer ou reformuler d'après le dossier : ${r.reproche}`));
   }
-  if (sansCorrection && decision === 'corriger') decision = 'rejeter';
+  // Après une correction, « encore à corriger » veut dire rejet : le motif
+  // le dit, plutôt que de proposer une correction qui n'aura pas lieu.
+  let motifFinal = motif;
+  if (sansCorrection && decision === 'corriger') {
+    decision = 'rejeter';
+    const restes = fondes.map((r) => r.reproche).filter(Boolean).join(' ; ');
+    motifFinal = `Doute persistant après correction${restes ? ` : ${restes}` : '.'}`;
+  }
 
   return {
     decision,
     hors_sujet: horsSujet,
     reproches,
     consignes: decision === 'corriger' ? consignes : [],
-    motif: motif || (horsSujet ? 'Hors sujet : le récit ne parle pas de la ville.' : ''),
+    motif: motifFinal || (horsSujet ? 'Hors sujet : le récit ne parle pas de la ville.' : ''),
   };
 }
