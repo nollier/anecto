@@ -98,7 +98,34 @@ interface Suivi {
     par_etape: Array<{ etape: string; appels: number; jetons: number }>;
   };
   a_relire: Array<{ id: string; ville: string; titre: string; lien?: string }>;
+  /** Les décisions de l'arbitre de relecture sur 24 h (`arbitrages_relecture`). */
+  arbitrages?: Arbitrage[];
   nouveaux_comptes: Array<{ email: string | null; ville: string | null }>;
+}
+
+interface Arbitrage {
+  ville: string;
+  titre_avant: string;
+  titre_apres: string | null;
+  decision: 'publiee' | 'publiee_corrigee' | 'rejetee';
+  motif: string;
+  consignes: string[];
+}
+
+const LIBELLES_ARBITRAGE: Record<Arbitrage['decision'], string> = {
+  publiee: '✓ Publiée telle quelle',
+  publiee_corrigee: '✎ Corrigée puis publiée',
+  rejetee: '✗ Rejetée',
+};
+
+/** Une décision en une ou deux lignes : verdict, motif, et ce qui a été changé. */
+function lignesArbitrage(a: Arbitrage): { tete: string; detail: string[] } {
+  const titre = a.titre_apres && a.titre_apres !== a.titre_avant ? `${a.titre_avant} → ${a.titre_apres}` : a.titre_avant;
+  const detail = [a.motif];
+  if (a.decision === 'publiee_corrigee' && a.consignes.length > 0) {
+    detail.push(`Modifié : ${a.consignes.join(' ; ')}`);
+  }
+  return { tete: `${LIBELLES_ARBITRAGE[a.decision] ?? a.decision} · ${a.ville} — ${titre}`, detail };
 }
 
 /** Le solde du compte DeepSeek ce matin, et ce qu'il a perdu depuis la veille. */
@@ -326,10 +353,19 @@ function corps(r: Rapport, c: Controle | null, s: Suivi | null, solde: Solde | n
     }
   }
 
+  const arbitrages = s?.arbitrages ?? [];
+  if (arbitrages.length > 0) {
+    lignes.push('', `Relecture automatique (${arbitrages.length}) :`);
+    for (const a of arbitrages) {
+      const { tete, detail } = lignesArbitrage(a);
+      lignes.push(`  ${tete}`, ...detail.map((d) => `    ${d}`));
+    }
+  }
+
   if (suivi.relire.length > 0) {
     lignes.push(
       '',
-      `À relire (${suivi.relire.length}) : le vérificateur doute, tout le reste est conforme.`,
+      `À relire (${suivi.relire.length}) : l'arbitre n'a pas pu trancher.`,
       ...suivi.relire.map((l) => `  ${l}`)
     );
   }
@@ -472,12 +508,27 @@ function corps(r: Rapport, c: Controle | null, s: Suivi | null, solde: Solde | n
       ? `<div style="font-size:14px;color:#666;margin:-8px 0 16px">${suivi.comptes.map(echapper).join('<br>')}</div>`
       : '';
 
+  const arbitragesHtml =
+    arbitrages.length > 0
+      ? `<div style="background:#f7f7f7;border-left:3px solid #444;padding:16px 18px;margin:24px 0">
+    <div style="font-size:13px;font-weight:700;color:#444;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px">Relecture automatique</div>
+    ${arbitrages
+      .map((a) => {
+        const { tete, detail } = lignesArbitrage(a);
+        return `<div style="margin-bottom:10px"><div style="font-size:15px;color:#1a1a1a">${echapper(tete)}</div>${detail
+          .map((d) => `<div style="font-size:13px;color:#666">${echapper(d)}</div>`)
+          .join('')}</div>`;
+      })
+      .join('')}
+  </div>`
+      : '';
+
   const aRelire = s?.a_relire ?? [];
   const relireHtml =
     aRelire.length > 0
       ? `<div style="background:#faf6f2;border-left:3px solid #b3402f;padding:16px 18px;margin:24px 0">
     <div style="font-size:13px;font-weight:700;color:#b3402f;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px">À relire</div>
-    <div style="font-size:13px;color:#666;margin-bottom:10px">Le vérificateur doute, tout le reste est conforme. Publier ou rejeter en un clic.</div>
+    <div style="font-size:13px;color:#666;margin-bottom:10px">L'arbitre n'a pas pu trancher. Publier ou rejeter en un clic.</div>
     ${aRelire
       .map(
         (a) =>
@@ -552,6 +603,8 @@ function corps(r: Rapport, c: Controle | null, s: Suivi | null, solde: Solde | n
   ${alerte}
 
   ${production}
+
+  ${arbitragesHtml}
 
   ${relireHtml}
 
