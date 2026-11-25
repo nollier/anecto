@@ -55,3 +55,7 @@ verify_jwt = false
 # session. Protégé par un jeton HMAC propre à chaque compte.
 [functions.desinscription-annonces]
 verify_jwt = false
+
+# Appelée par pg_cron avec le secret admin (en-tête x-anecto-admin-secret).
+[functions.arbitrage-relecture]
+verify_jwt = false

@@ -37,7 +37,7 @@ Le dossier est la seule référence. Ce que tu crois savoir par ailleurs ne comp
 - non fondé : le dossier dit bien ce que l'anecdote affirme, ou le vérificateur conclut lui-même que c'est « cohérent », « dans le dossier », « pas un problème », ou il ne reproche qu'une omission ou une reformulation fidèle.
 Vérifie en relisant le dossier, ne recopie pas l'avis du vérificateur.
 
-2. Vérifie que l'anecdote parle bien de la ville annoncée : un récit qui se passe entièrement ailleurs, sans lien avec cette ville dans le dossier, est hors sujet.
+2. Vérifie que l'anecdote parle bien de la ville annoncée, et pas d'une autre. Le dossier peut porter sur une autre ville (homonyme, ville portuaire, ville voisine) : un récit qui se passe à Douvres, Anvers ou Boulogne n'est pas un récit sur « Le Port », même s'il parle d'un port. Si les lieux du récit ne sont pas dans la ville annoncée, "hors_sujet" vaut true, quelle que soit la qualité du texte.
 
 3. Décide :
 - "publier" : aucun reproche fondé, et l'anecdote parle de la ville.
@@ -69,7 +69,7 @@ export function arbitragePrompt(
   reproches: string[],
   sansCorrection = false
 ): string {
-  return `DOSSIER DOCUMENTAIRE SUR ${city.toUpperCase()}
+  return `DOSSIER DOCUMENTAIRE (fourni pour la ville de ${city}, à vérifier : il peut porter sur une autre ville)
 ${dossier}
 
 === FIN DU DOSSIER ===
@@ -88,10 +88,10 @@ ${reproches.length > 0 ? reproches.map((r) => `- ${r}`).join('\n') : '- Doute g�
 ${
   sansCorrection
     ? `
-Cette version est déjà une correction : il n'y en aura pas d'autre. Décide seulement "publier" ou "rejeter".`
+Cette version a été corrigée et ne le sera plus. Juge-la pour elle-même, sans tenir compte des corrections passées : "publier" si aucun reproche n'est fondé et qu'elle parle de ${city}, "rejeter" sinon.`
     : ''
 }
-Tranche et réponds en json.`;
+Ville annoncée : ${city}. Tranche et réponds en json.`;
 }
 
 /**

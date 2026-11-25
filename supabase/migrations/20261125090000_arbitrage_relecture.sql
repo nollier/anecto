@@ -1,5 +1,5 @@
--- La relecture des anecdotes `a_relire` confiée à un arbitre (mode `arbitrer`
--- de `generate-anecdote`, voir `arbitrage.ts`) : il juge les reproches du
+-- La relecture des anecdotes `a_relire` confiée à un arbitre (fonction
+-- `arbitrage-relecture`) : il juge les reproches du
 -- vérificateur, fait corriger si besoin, puis publie ou rejette. Le rapport
 -- du matin dit ce qu'il a décidé. Ce qu'il n'a pas pu trancher (panne,
 -- sources illisibles) reste dans « À relire », avec les liens de relecture.
@@ -25,7 +25,7 @@ alter table public.arbitrages_relecture enable row level security;
 create index if not exists arbitrages_relecture_created_at_idx
   on public.arbitrages_relecture (created_at);
 
-create or replace function public.arbitrer_relectures(p_limit int default 1)
+create or replace function public.arbitrer_relectures()
 returns bigint
 language plpgsql
 security definer
@@ -51,18 +51,18 @@ begin
   end if;
 
   return net.http_post(
-    url := v_url || '/generate-anecdote',
+    url := v_url || '/arbitrage-relecture',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'x-anecto-admin-secret', v_secret
     ),
-    body := jsonb_build_object('mode', 'arbitrer', 'limit', p_limit),
+    body := '{}'::jsonb,
     timeout_milliseconds := 300000
   );
 end;
 $$;
 
-revoke execute on function public.arbitrer_relectures(int) from public, anon, authenticated;
+revoke execute on function public.arbitrer_relectures() from public, anon, authenticated;
 
 -- Une anecdote par passage, toutes les dix minutes : un arbitrage avec
 -- correction coûte quatre ou cinq appels DeepSeek.
@@ -72,7 +72,7 @@ select cron.unschedule('anecto-arbitrage-relecture')
 select cron.schedule(
   'anecto-arbitrage-relecture',
   '8,18,28,38,48,58 * * * *',
-  $$select public.arbitrer_relectures(1)$$
+  $$select public.arbitrer_relectures()$$
 );
 
 -- Le suivi du matin : les décisions de l'arbitre des dernières 24 heures.

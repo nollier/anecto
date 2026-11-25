@@ -1,5 +1,5 @@
 // node --experimental-strip-types --test \
-//   supabase/functions/generate-anecdote/arbitrage.test.ts
+//   supabase/functions/arbitrage-relecture/arbitrage.test.ts
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
