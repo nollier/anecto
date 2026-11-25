@@ -124,23 +124,71 @@ async function call(params: Record<string, string>): Promise<any> {
   return await res.json();
 }
 
+/** Un résultat de recherche, avec ce qu'on sait de sa nature. */
+export interface Candidat {
+  title: string;
+  homonymie: boolean;
+}
+
+/**
+ * Choisit l'article de la commune parmi les résultats de recherche.
+ *
+ * Jamais une page d'homonymie. Le 25 novembre, « Le Port » (La Réunion)
+ * prenait l'article « Le Port », qui est une homonymie : ses liens et la
+ * recherche plein texte de « Le Port » ramenaient le port de Boulogne, celui
+ * de Calais, Portsmouth, Douvres, Anvers, et trois anecdotes sur Boulogne
+ * étaient validées pour une ville de l'océan Indien.
+ *
+ * Titre identique au nom saisi d'abord, sinon un titre qualifié
+ * (« Le Port (La Réunion) ») s'il est seul, sinon le premier résultat qui
+ * contient le nom. Plusieurs communes homonymes et rien pour trancher :
+ * null. Un dossier vide vaut mieux qu'un dossier sur une autre ville.
+ */
+export function choisirTitreVille(city: string, candidats: Candidat[]): string | null {
+  const bas = city.trim().toLowerCase();
+  const utiles = candidats.filter((c) => !c.homonymie);
+  const exact = utiles.find((c) => c.title.toLowerCase() === bas);
+  if (exact) return exact.title;
+  const qualifies = utiles.filter((c) => c.title.toLowerCase().startsWith(`${bas} (`));
+  if (qualifies.length === 1) return qualifies[0].title;
+  if (qualifies.length > 1) return null;
+  // Le nom doit figurer dans le titre : sinon « Le Port » rendait « Port ».
+  return utiles.find((c) => c.title.toLowerCase().includes(bas))?.title ?? null;
+}
+
+/** Les pages, avec leur drapeau d'homonymie. */
+async function avecHomonymie(params: Record<string, string>): Promise<Candidat[]> {
+  const data = await call({ action: 'query', prop: 'pageprops', ppprop: 'disambiguation', ...params });
+  // deno-lint-ignore no-explicit-any
+  const pages: any[] = Object.values(data?.query?.pages ?? {});
+  return pages
+    .filter((p) => !p.missing)
+    .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
+    .map((p) => ({ title: p.title as string, homonymie: p.pageprops?.disambiguation !== undefined }));
+}
+
 /** Titre de l'article le plus probable pour cette ville. */
 async function findCityTitle(city: string): Promise<string | null> {
-  const data = await call({
-    action: 'query',
-    list: 'search',
-    srsearch: city,
-    srlimit: '5',
-    srnamespace: '0',
+  const hits = await avecHomonymie({
+    generator: 'search',
+    gsrsearch: city,
+    gsrlimit: '10',
+    gsrnamespace: '0',
   });
-
-  const hits: Array<{ title: string }> = data?.query?.search ?? [];
-  if (hits.length === 0) return null;
-
-  // Un titre identique au nom saisi vaut mieux que le premier résultat de
-  // pertinence, qui peut être une homonymie ou une personnalité locale.
-  const exact = hits.find((h) => h.title.toLowerCase() === city.toLowerCase());
-  return (exact ?? hits[0]).title;
+  const exactHomonymie = hits.find((h) => h.homonymie && h.title.toLowerCase() === city.toLowerCase());
+  // Le nom exact est une homonymie : la commune est parmi ses liens, sous un
+  // titre qualifié.
+  const candidats = exactHomonymie
+    ? await avecHomonymie({
+        generator: 'links',
+        titles: exactHomonymie.title,
+        gplnamespace: '0',
+        gpllimit: '500',
+      }).catch(() => [])
+    : hits;
+  const titre = choisirTitreVille(city, candidats);
+  if (!titre) console.error(`Wikipédia : article de « ${city} » introuvable ou ambigu.`);
+  return titre;
 }
 
 /** Membres d'une catégorie, ou liste vide si elle n'existe pas. */
@@ -269,7 +317,7 @@ const HORS_HISTOIRE =
  * nomme est le filtre le plus sûr qu'on ait sans lire l'article.
  */
 async function trouverHistoire(cityTitle: string): Promise<string[]> {
-  const nom = cityTitle.replace(/\s*\(.*\)$/, '').toLowerCase();
+  const nom = cityTitle.replace(/\s*\(.*\)$/, '');
   const [histoire, sieges, fetes, detruits, militaire, liensHistoire, liensVille] = await Promise.all([
     membresCategorie(`Catégorie:Histoire de ${cityTitle}`),
     membresCategorie(`Catégorie:Siège de ${cityTitle}`),
@@ -280,7 +328,7 @@ async function trouverHistoire(cityTitle: string): Promise<string[]> {
     liens(cityTitle),
   ]);
 
-  const nommeLaVille = (t: string) => t.toLowerCase().includes(nom);
+  const nommeLaVille = (t: string) => occurrences(t, nom) > 0;
   const candidats = [
     ...melanger([...histoire, ...sieges, ...fetes, ...detruits, ...militaire]),
     ...melanger([...liensHistoire, ...liensVille].filter(nommeLaVille)),
@@ -312,7 +360,9 @@ async function trouverMentions(cityTitle: string): Promise<string[]> {
     const data = await call({
       action: 'query',
       list: 'search',
-      srsearch: `"${nom}"`,
+      // Le qualificatif (« La Réunion ») borne la recherche à la bonne
+      // commune : `"Le Port"` seul rend tous les ports du monde.
+      srsearch: qualificatif(cityTitle) ? `"${nom}" "${qualificatif(cityTitle)}"` : `"${nom}"`,
       srlimit: '100',
       srnamespace: '0',
     });
@@ -325,13 +375,28 @@ async function trouverMentions(cityTitle: string): Promise<string[]> {
   return titres.filter((t) => !generaux.has(t.toLowerCase()) && !HORS_MENTIONS.test(t));
 }
 
+// Un nom qui commence par un article (« Le Port », « La Possession »,
+// « Les Avirons ») est aussi un nom commun : « le port de Boulogne »
+// contient « le port ». On le cherche alors avec sa casse.
+const ARTICLE_INITIAL = /^(le|la|les|l['’])[\s'’]/i;
+
+function plat(t: string, garderCasse = false): string {
+  const sans = t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[-‐‑'’]/g, ' ');
+  return garderCasse ? sans : sans.toLowerCase();
+}
+
 /** Combien de fois l'article nomme la ville. */
 export function occurrences(texte: string, nom: string): number {
-  const plat = (t: string) =>
-    t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[-‐‑'’]/g, ' ').toLowerCase();
-  const aiguille = plat(nom);
+  const casse = ARTICLE_INITIAL.test(nom.trim());
+  const aiguille = plat(nom.trim(), casse);
   if (!aiguille) return 0;
-  return plat(texte).split(aiguille).length - 1;
+  return plat(texte, casse).split(aiguille).length - 1;
+}
+
+/** « Le Port (La Réunion) » → « Réunion ». Pas de parenthèse : null. */
+export function qualificatif(cityTitle: string): string | null {
+  const m = cityTitle.match(/\(([^)]+)\)\s*$/);
+  return m ? m[1].replace(ARTICLE_INITIAL, '').trim() || null : null;
 }
 
 // Seuils de `estRacontable`. Volontairement bas : ils écartent la fiche
@@ -479,7 +544,7 @@ export async function fetchWikipediaDocs(
     resultats.forEach((resultat, i) => {
       if (resultat.status === 'rejected') {
         console.error(`Wikipédia « ${titres[i]} »`, resultat.reason);
-      } else if (resultat.value && parleDe(resultat.value, cityTitle, city)) {
+      } else if (resultat.value && parleDe(resultat.value, cityTitle, city, axe === 'mentions')) {
         // Sur les axes qui ne sont pas tenus à la main (une catégorie, une
         // liste rédigée), l'article doit aussi raconter : des dates, et la
         // ville plus d'une fois.
@@ -516,10 +581,13 @@ export async function fetchWikipediaDocs(
  * vide : le modèle a refusé, à raison, d'écrire sur la ville à partir
  * d'articles qui ne la nomment pas.
  */
-export function parleDe(doc: SourceDoc, cityTitle: string, city: string): boolean {
-  const plat = (t: string) =>
-    t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[-‐‑'’]/g, ' ').toLowerCase();
-  const texte = plat(`${doc.title}\n${doc.extract}`);
-  const noms = [cityTitle.replace(/\s*\(.*\)$/, ''), city].map(plat).filter(Boolean);
-  return noms.some((n) => texte.includes(n));
+export function parleDe(doc: SourceDoc, cityTitle: string, city: string, exigerQualificatif = false): boolean {
+  const texte = `${doc.title}\n${doc.extract}`;
+  const noms = [cityTitle.replace(/\s*\(.*\)$/, ''), city].filter((n) => n.trim());
+  if (!noms.some((n) => occurrences(texte, n) > 0)) return false;
+  // Recherche plein texte : un homonyme (Le Port en Ariège, Saint-Paul de
+  // Vence) cite le même nom. Le qualificatif de l'article de la commune doit
+  // alors figurer aussi.
+  const q = qualificatif(cityTitle);
+  return !exigerQualificatif || !q || occurrences(texte, q) > 0;
 }

@@ -135,6 +135,9 @@ function budget(docs: SourceDoc[], max: number): SourceDoc[] {
 // Réunion. Clé : le place_id Google de la ville.
 const TITRES_WIKIPEDIA: Record<string, string> = {
   'ChIJZxI5LTF-thIRsDhrFiGIBwQ': 'Saint-Paul (La Réunion)',
+  // « Le Port » est une homonymie, et le nom commun « port » ramenait
+  // Boulogne, Calais, Douvres et Anvers.
+  'ChIJw68VjzKGgiERabVXhL0vKOk': 'Le Port (La Réunion)',
 };
 
 async function buildDossier(
@@ -1320,7 +1323,9 @@ async function planifier(
   const plan = await chatJSON<{ sujets?: unknown }>({
     apiKey,
     system: PLAN_SYSTEM,
-    user: planPrompt(lot.city, dossierPlan(docs), Math.min(combien + 4, 14), existantes),
+    // « Le Port (La Réunion) » plutôt que « LE PORT » : le nom seul se lit
+    // comme un nom commun, et le plan retenait le port de Boulogne.
+    user: planPrompt((lot.city_place_id && TITRES_WIKIPEDIA[lot.city_place_id]) || lot.city, dossierPlan(docs), Math.min(combien + 4, 14), existantes),
     temperature: 0.3,
     maxTokens: 4000,
     etape: 'plan',
